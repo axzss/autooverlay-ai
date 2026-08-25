@@ -49,7 +49,8 @@ class AgentRuntime:
             csp_opportunities=csp_opps,
             cc_opportunities=cc_opps,
             positions=positions,
-            market_data=market_data
+            market_data=market_data,
+            open_option_positions=context.get("open_option_positions"),
         )
 
         # Optionally auto-execute safe actions

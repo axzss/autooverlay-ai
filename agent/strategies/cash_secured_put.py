@@ -93,6 +93,29 @@ class CashSecuredPutStrategy:
                 strike_below_basis=strike_below_basis,
             )
             recommendation = self._recommendation(ann_yield, risk_score)
+
+            reasoning_trace = [
+                f"DTE {dte} within {self.min_dte}-{self.max_dte} band ✓",
+                f"|delta| {delta:.2f} within {self.min_delta:.2f}-"
+                f"{self.MAX_DELTA:.2f} band ✓",
+                f"cash check: ${cash_required:,.0f} collateral per contract, "
+                f"{contracts_affordable} contract(s) affordable on "
+                f"${account_cash:,.0f} cash "
+                f"{'✓' if contracts_affordable >= 1 else '✗'}",
+                f"premium ${premium:.2f}/share → annualized cash-secured yield "
+                f"{ann_yield*100:.1f}% (floor {self.min_annualized_yield*100:.0f}%) "
+                f"{'✓' if ann_yield >= self.min_annualized_yield else '✗'}",
+                f"strike ${strike:.2f} vs cost basis " +
+                (f"${cost_basis:.2f}: below basis — accumulating at a discount ✓"
+                 if strike_below_basis else
+                 f"${cost_basis:.2f}: ABOVE basis (+15 risk) ✗"
+                 if strike_below_basis is False else
+                 "n/a — no existing position"),
+                f"risk score {risk_score}/100 from IV, delta, DTE gamma, basis "
+                f"and cushion components",
+                f"verdict: {recommendation}",
+            ]
+
             rationale = self._rationale(
                 symbol=symbol, strike=strike, dte=dte, delta=delta,
                 premium=premium, ann_yield=ann_yield, risk_score=risk_score,
@@ -118,6 +141,7 @@ class CashSecuredPutStrategy:
                 "risk_score": risk_score,
                 "recommendation": recommendation,
                 "rationale": rationale,
+                "reasoning_trace": reasoning_trace,
             })
 
         return sorted(results, key=lambda r: r["annualized_premium_yield"], reverse=True)

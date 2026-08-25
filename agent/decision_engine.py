@@ -13,15 +13,22 @@ Pure logic over the strategy outputs + positions; no I/O, deterministic.
 from typing import Dict, List, Optional
 from .strategies.cash_secured_put import CashSecuredPutStrategy
 from .strategies.covered_call import CoveredCallStrategy
+from .exit_manager import ExitManager
+from .portfolio_analyst import PortfolioAnalyst
 
 VALID_ACTIONS = ("INITIATE_POSITION", "HOLD_POSITION", "MONITOR_CLOSELY")
 
 
 class DecisionEngine:
-    def __init__(self, account_cash: float = 100000.0):
+    def __init__(self, account_cash: float = 100000.0,
+                 portfolio_value: Optional[float] = None):
         self.csp = CashSecuredPutStrategy()
         self.cc = CoveredCallStrategy()
         self.account_cash = account_cash
+        self.portfolio_value = (portfolio_value if portfolio_value is not None
+                                else account_cash)
+        self.exit_manager = ExitManager()
+        self.portfolio_analyst = PortfolioAnalyst()
 
     def evaluate(
         self,
@@ -29,11 +36,15 @@ class DecisionEngine:
         cc_opportunities: List[Dict],
         positions: List[Dict],
         market_data: Optional[Dict] = None,
+        open_option_positions: Optional[List[Dict]] = None,
     ) -> Dict:
         """
         Run both strategies and produce a unified decision dict with
-        csp_results, cc_results, actions (INITIATE_POSITION only), and
-        portfolio_health.
+        csp_results, cc_results, actions (INITIATE_POSITION only),
+        exit_actions, and portfolio_health.
+
+        open_option_positions: optional list of open short-option overlay
+        positions (short calls / short puts) evaluated by the ExitManager.
         """
         csp_results = self.csp.screen(csp_opportunities, self.account_cash,
                                       positions=positions)
@@ -55,8 +66,17 @@ class DecisionEngine:
                     "risk_score": r["risk_score"],
                     "rationale": r["rationale"],
                     "reasoning": r["rationale"],  # back-compat key
+                    "reasoning_trace": r.get("reasoning_trace", []),
                     "premium_per_share": r.get("premium_per_share"),
                 })
+
+        # Exit management for open short-option overlays.
+        exit_actions = self.exit_manager.evaluate_positions(
+            open_option_positions or [])
+
+        # Portfolio context: concentration, sectors, cash reserve.
+        portfolio_context = self.portfolio_analyst.assess(
+            positions, self.portfolio_value, self.account_cash)
 
         # Global ranking of every screened candidate (both strategies merged),
         # by annualized yield desc — useful for the caller's prioritization.
@@ -71,6 +91,8 @@ class DecisionEngine:
             "cc_results": cc_results,
             "ranked_recommendations": ranked,
             "actions": actions,
+            "exit_actions": exit_actions,
+            "portfolio_context": portfolio_context,
             "portfolio_health": self._assess_portfolio_health(positions, ranked),
             "timestamp": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         }
