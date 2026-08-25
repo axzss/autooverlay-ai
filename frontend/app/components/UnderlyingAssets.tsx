@@ -1,8 +1,18 @@
 'use client'
 
 import { FileText } from 'lucide-react'
+import type { Position } from '@/types/portfolio'
 
-export default function UnderlyingAssets() {
+interface UnderlyingAssetsProps {
+  positions: Position[]
+}
+
+const fmt = (n: number) =>
+  n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+export default function UnderlyingAssets({ positions }: UnderlyingAssetsProps) {
+  const equities = positions.filter((p) => p.asset_class !== 'option')
+
   return (
     <div className="card overflow-hidden">
       <div className="px-4 py-3 border-b border-[#1e293b] flex items-center gap-2">
@@ -20,18 +30,27 @@ export default function UnderlyingAssets() {
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-[#1e293b] last:border-0 hover:bg-[#1e293b]/40 transition-colors">
-              <td className="px-4 py-3 text-white font-medium">SPY</td>
-              <td className="px-4 py-3 text-right text-[#f8fafc] tabular-nums">100</td>
-              <td className="px-4 py-3 text-right text-[#f8fafc] tabular-nums">$500.00</td>
-              <td className="px-4 py-3 text-right text-[#22c55e] tabular-nums">$512.45</td>
-            </tr>
-            <tr className="border-b border-[#1e293b] last:border-0 hover:bg-[#1e293b]/40 transition-colors">
-              <td className="px-4 py-3 text-white font-medium">QQQ</td>
-              <td className="px-4 py-3 text-right text-[#f8fafc] tabular-nums">50</td>
-              <td className="px-4 py-3 text-right text-[#f8fafc] tabular-nums">$420.50</td>
-              <td className="px-4 py-3 text-right text-[#22c55e] tabular-nums">$435.10</td>
-            </tr>
+            {equities.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-[#94a3b8]">
+                  No underlying equity positions.
+                </td>
+              </tr>
+            )}
+            {equities.map((p) => {
+              const qty = Number(p.qty)
+              const avg = Number(p.avg_entry_price)
+              const current = qty === 0 ? 0 : Number(p.market_value) / Math.abs(qty)
+              const up = current >= avg
+              return (
+                <tr key={p.asset_id} className="border-b border-[#1e293b] last:border-0 hover:bg-[#1e293b]/40 transition-colors">
+                  <td className="px-4 py-3 text-white font-medium">{p.symbol}</td>
+                  <td className="px-4 py-3 text-right text-[#f8fafc] tabular-nums">{qty}</td>
+                  <td className="px-4 py-3 text-right text-[#f8fafc] tabular-nums">${fmt(avg)}</td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${up ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>${fmt(current)}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
