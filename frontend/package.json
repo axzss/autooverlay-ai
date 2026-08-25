@@ -1,0 +1,50 @@
+{
+  "name": "alpaca-overlay-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@radix-ui/react-label": "^1.0.0",
+    "@radix-ui/react-slot": "^1.0.0",
+    "@radix-ui/react-tabs": "^1.0.1",
+    "@tailwindcss/forms": "^0.5.7",
+    "@tanstack/react-query": "^5.32.1",
+    "autoprefixer": "^10.4.14",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "framer-motion": "^10.12.16",
+    "geist": "^1.0.0",
+    "lucide-react": "^0.398.0",
+    "next": "14.2.3",
+    "next-themes": "^0.4.6",
+    "postcss": "^8.4.31",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.51.4",
+    "recharts": "^2.12.7",
+    "tailwind-merge": "^2.4.0",
+    "tailwindcss": "^3.4.4",
+    "three": "^0.164.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^7.9.1",
+    "@typescript-eslint/parser": "^7.9.1",
+    "@typescript-eslint/typescript-estree": "^7.9.1",
+    "autoprefixer": "^10.4.14",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.2",
+    "playwright": "^1.62.1",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.4.5"
+  }
+}
