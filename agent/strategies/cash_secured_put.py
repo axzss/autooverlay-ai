@@ -16,8 +16,13 @@ Each output row carries an explicit integer risk score 0-100 and a written
 rationale for the recommendation label.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime
+
+try:
+    from ..config import StrategyConfig
+except ImportError:  # pragma: no cover - direct-script imports
+    from config import StrategyConfig
 
 
 class CashSecuredPutStrategy:
@@ -26,18 +31,20 @@ class CashSecuredPutStrategy:
 
     def __init__(
         self,
-        min_dte: int = 7,
-        max_dte: int = 45,
-        min_delta: float = MIN_DELTA,
-        max_delta: float = MAX_DELTA,
+        min_dte: Optional[int] = None,
+        max_dte: Optional[int] = None,
+        min_delta: Optional[float] = None,
+        max_delta: Optional[float] = None,
         min_annualized_yield: float = 0.12,
         good_annualized_yield: float = 0.25,
         max_risk_for_entry: int = 60,
+        config: "StrategyConfig | None" = None,
     ):
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.min_delta = min_delta
-        self.max_delta = max_delta
+        cfg = config or StrategyConfig()
+        self.min_dte = min_dte if min_dte is not None else cfg.dte_min
+        self.max_dte = max_dte if max_dte is not None else cfg.dte_max
+        self.min_delta = min_delta if min_delta is not None else cfg.delta_min
+        self.max_delta = max_delta if max_delta is not None else cfg.delta_max
         self.min_annualized_yield = min_annualized_yield
         self.good_annualized_yield = good_annualized_yield
         self.max_risk_for_entry = max_risk_for_entry

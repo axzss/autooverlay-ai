@@ -20,6 +20,49 @@ from ..mock_data import mock_positions, mock_screen_candidates
 router = APIRouter()
 
 
+# ---------------------------------------------------------------------------
+# Strategy configuration (GET/PUT /strategy/config)
+#
+# Hackathon scope: the active config lives as an in-process module-level
+# singleton shared by every request. It is seeded from StrategyConfig()
+# which honors the optional STRATEGY_CONFIG_JSON env var.
+# ---------------------------------------------------------------------------
+from agent.config import StrategyConfig  # noqa: E402
+
+_active_config = StrategyConfig()
+
+
+class StrategyConfigModel(BaseModel):
+    take_profit_pct: float
+    stop_loss_mult: float
+    roll_delta: float
+    roll_min_dte: int
+    delta_min: float
+    delta_max: float
+    dte_min: int
+    dte_max: int
+    max_concentration_pct: float
+    min_cash_reserve_pct: float
+
+
+@router.get("/strategy/config")
+async def get_strategy_config() -> dict:
+    return {"config": _active_config.to_dict(), "valid": not _active_config.validate()}
+
+
+@router.put("/strategy/config")
+async def put_strategy_config(body: StrategyConfigModel) -> dict:
+    global _active_config
+    candidate = StrategyConfig.from_dict(body.model_dump())
+    errors = candidate.validate()
+    if errors:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail={"errors": errors})
+    _active_config = candidate
+    return {"status": "ok", "config": _active_config.to_dict()}
+
+
 class ScreenRequest(BaseModel):
     symbols: Optional[List[str]] = Field(default=None, description="Restrict scan to these underlyings")
     min_open_interest: int = Field(default=0, ge=0)

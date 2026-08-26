@@ -14,6 +14,11 @@ Pure logic, deterministic, no I/O.
 
 from typing import Dict, List, Optional, Tuple
 
+try:
+    from .config import StrategyConfig
+except ImportError:  # pragma: no cover - direct-script imports
+    from config import StrategyConfig
+
 MAX_CONCENTRATION = 0.25        # max share of portfolio value per ticker
 MIN_CASH_RESERVE_PCT = 0.10     # min cash remaining after collateral
 
@@ -56,12 +61,18 @@ class PortfolioAnalyst:
 
     def __init__(
         self,
-        max_concentration: float = MAX_CONCENTRATION,
-        min_cash_reserve_pct: float = MIN_CASH_RESERVE_PCT,
+        max_concentration: Optional[float] = None,
+        min_cash_reserve_pct: Optional[float] = None,
         sector_map: Optional[Dict[str, str]] = None,
+        config: Optional[StrategyConfig] = None,
     ):
-        self.max_concentration = max_concentration
-        self.min_cash_reserve_pct = min_cash_reserve_pct
+        cfg = config or StrategyConfig()
+        self.max_concentration = (
+            max_concentration if max_concentration is not None
+            else cfg.max_concentration_pct / 100.0)
+        self.min_cash_reserve_pct = (
+            min_cash_reserve_pct if min_cash_reserve_pct is not None
+            else cfg.min_cash_reserve_pct / 100.0)
         self.sector_map = dict(sector_map or SECTOR_MAP)
 
     # ------------------------------------------------------------------ #

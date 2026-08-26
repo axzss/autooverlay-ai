@@ -19,6 +19,11 @@ rationale for the recommendation label.
 from typing import Dict, List
 from datetime import datetime
 
+try:
+    from ..config import StrategyConfig
+except ImportError:  # pragma: no cover - direct-script imports
+    from config import StrategyConfig
+
 
 class CoveredCallStrategy:
     MIN_DELTA = 0.15
@@ -26,17 +31,19 @@ class CoveredCallStrategy:
 
     def __init__(
         self,
-        min_dte: int = 7,
-        max_dte: int = 45,
-        min_delta: float = MIN_DELTA,
-        max_delta: float = MAX_DELTA,
+        min_dte: "int | None" = None,
+        max_dte: "int | None" = None,
+        min_delta: "float | None" = None,
+        max_delta: "float | None" = None,
         min_annualized_yield: float = 0.12,
         good_annualized_yield: float = 0.25,
+        config: "StrategyConfig | None" = None,
     ):
-        self.min_dte = min_dte
-        self.max_dte = max_dte
-        self.min_delta = min_delta
-        self.max_delta = max_delta
+        cfg = config or StrategyConfig()
+        self.min_dte = min_dte if min_dte is not None else cfg.dte_min
+        self.max_dte = max_dte if max_dte is not None else cfg.dte_max
+        self.min_delta = min_delta if min_delta is not None else cfg.delta_min
+        self.max_delta = max_delta if max_delta is not None else cfg.delta_max
         self.min_annualized_yield = min_annualized_yield
         self.good_annualized_yield = good_annualized_yield
 

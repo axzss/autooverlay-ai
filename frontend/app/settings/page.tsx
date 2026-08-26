@@ -3,6 +3,7 @@
 import Sidebar from '@/components/Sidebar'
 import Header from '@/components/Header'
 import AgentConfiguration from '@/components/AgentConfiguration'
+import StrategyConfigCard from '@/components/StrategyConfigCard'
 
 export default function SettingsPage() {
   return (
@@ -11,7 +12,10 @@ export default function SettingsPage() {
       <div className="flex flex-1 flex-col min-w-0">
         <Header />
         <main className="flex-1 overflow-y-auto">
-          <AgentConfiguration />
+          <div className="space-y-4 px-6 pt-6 pb-6">
+            <StrategyConfigCard />
+            <AgentConfiguration />
+          </div>
         </main>
       </div>
     </div>

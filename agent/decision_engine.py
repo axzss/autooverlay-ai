@@ -15,20 +15,23 @@ from .strategies.cash_secured_put import CashSecuredPutStrategy
 from .strategies.covered_call import CoveredCallStrategy
 from .exit_manager import ExitManager
 from .portfolio_analyst import PortfolioAnalyst
+from .config import StrategyConfig
 
 VALID_ACTIONS = ("INITIATE_POSITION", "HOLD_POSITION", "MONITOR_CLOSELY")
 
 
 class DecisionEngine:
     def __init__(self, account_cash: float = 100000.0,
-                 portfolio_value: Optional[float] = None):
-        self.csp = CashSecuredPutStrategy()
-        self.cc = CoveredCallStrategy()
+                 portfolio_value: Optional[float] = None,
+                 config: Optional[StrategyConfig] = None):
+        self.config = config or StrategyConfig()
+        self.csp = CashSecuredPutStrategy(config=self.config)
+        self.cc = CoveredCallStrategy(config=self.config)
         self.account_cash = account_cash
         self.portfolio_value = (portfolio_value if portfolio_value is not None
                                 else account_cash)
-        self.exit_manager = ExitManager()
-        self.portfolio_analyst = PortfolioAnalyst()
+        self.exit_manager = ExitManager(config=self.config)
+        self.portfolio_analyst = PortfolioAnalyst(config=self.config)
 
     def evaluate(
         self,

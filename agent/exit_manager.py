@@ -20,6 +20,11 @@ Pure logic, deterministic, no I/O.
 from typing import Dict, List, Optional
 from datetime import datetime
 
+try:
+    from .config import StrategyConfig
+except ImportError:  # pragma: no cover - direct-script imports
+    from config import StrategyConfig
+
 TAKE_PROFIT_CAPTURE_PCT = 0.60   # close when >=60% of premium is captured
 STOP_LOSS_MULTIPLE = 2.0         # stop at a loss of 2x initial premium
 ROLL_DELTA_THRESHOLD = 0.40      # roll when |delta| > 0.40
@@ -51,15 +56,25 @@ class ExitManager:
 
     def __init__(
         self,
-        take_profit_capture_pct: float = TAKE_PROFIT_CAPTURE_PCT,
-        stop_loss_multiple: float = STOP_LOSS_MULTIPLE,
-        roll_delta_threshold: float = ROLL_DELTA_THRESHOLD,
-        roll_dte_threshold: int = ROLL_DTE_THRESHOLD,
+        take_profit_capture_pct: Optional[float] = None,
+        stop_loss_multiple: Optional[float] = None,
+        roll_delta_threshold: Optional[float] = None,
+        roll_dte_threshold: Optional[int] = None,
+        config: Optional[StrategyConfig] = None,
     ):
-        self.take_profit_capture_pct = take_profit_capture_pct
-        self.stop_loss_multiple = stop_loss_multiple
-        self.roll_delta_threshold = roll_delta_threshold
-        self.roll_dte_threshold = roll_dte_threshold
+        cfg = config or StrategyConfig()
+        tp = take_profit_capture_pct if take_profit_capture_pct is not None \
+            else cfg.take_profit_pct
+        sl = stop_loss_multiple if stop_loss_multiple is not None \
+            else cfg.stop_loss_mult
+        rd = roll_delta_threshold if roll_delta_threshold is not None \
+            else cfg.roll_delta
+        rdt = roll_dte_threshold if roll_dte_threshold is not None \
+            else cfg.roll_min_dte
+        self.take_profit_capture_pct = float(tp)
+        self.stop_loss_multiple = float(sl)
+        self.roll_delta_threshold = float(rd)
+        self.roll_dte_threshold = int(rdt)
 
     def evaluate_position(self, position: Dict,
                           as_of: Optional[datetime] = None) -> Dict:
