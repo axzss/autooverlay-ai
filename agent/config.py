@@ -35,6 +35,11 @@ class StrategyConfig:
     max_concentration_pct: float = 25.0  # max % of portfolio per ticker
     min_cash_reserve_pct: float = 10.0   # min % cash remaining after collateral
 
+    # Kill-switch thresholds (agent halt conditions)
+    kill_max_drawdown_pct: float = 5.0           # peak-to-current drawdown that halts
+    kill_max_single_day_loss_pct: float = 2.0    # worst one-day loss that halts
+    kill_consecutive_stop_losses: int = 3        # consecutive stop-loss exits before halt
+
     # ------------------------------------------------------------------ #
     # Validation                                                          #
     # ------------------------------------------------------------------ #

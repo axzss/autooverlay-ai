@@ -1,0 +1,82 @@
+[
+  {
+    "symbol": "AAPL",
+    "price": 309.89,
+    "day_change_pct": -0.16,
+    "vol30d_annualized_pct": 30.5,
+    "drawdown_from_52w_high_pct": -8.9,
+    "w52_low": 232.27,
+    "w52_high": 333.75,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "MSFT",
+    "price": 491.55,
+    "day_change_pct": 0.87,
+    "vol30d_annualized_pct": 48.9,
+    "drawdown_from_52w_high_pct": -6.1,
+    "w52_low": 356.86,
+    "w52_high": 523.66,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "NVDA",
+    "price": 212.96,
+    "day_change_pct": 2.15,
+    "vol30d_annualized_pct": 35.9,
+    "drawdown_from_52w_high_pct": -5.5,
+    "w52_low": 167.07,
+    "w52_high": 225.31,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "TSLA",
+    "price": 350.24,
+    "day_change_pct": 0.37,
+    "vol30d_annualized_pct": 59.1,
+    "drawdown_from_52w_high_pct": -27.2,
+    "w52_low": 311.19,
+    "w52_high": 481.07,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "SPY",
+    "price": 765.79,
+    "day_change_pct": 0.31,
+    "vol30d_annualized_pct": 12.2,
+    "drawdown_from_52w_high_pct": -1.5,
+    "w52_low": 634.04,
+    "w52_high": 776.3,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "QQQ",
+    "price": 710.66,
+    "day_change_pct": 0.61,
+    "vol30d_annualized_pct": 21.5,
+    "drawdown_from_52w_high_pct": -3.9,
+    "w52_low": 562.5,
+    "w52_high": 739.82,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "JPM",
+    "price": 356.67,
+    "day_change_pct": 0.07,
+    "vol30d_annualized_pct": 17.6,
+    "drawdown_from_52w_high_pct": -2.3,
+    "w52_low": 282.75,
+    "w52_high": 362.82,
+    "n_days_used": 30
+  },
+  {
+    "symbol": "KO",
+    "price": 91.63,
+    "day_change_pct": -0.36,
+    "vol30d_annualized_pct": 24.4,
+    "drawdown_from_52w_high_pct": -0.4,
+    "w52_low": 65.64,
+    "w52_high": 91.63,
+    "n_days_used": 30
+  }
+]
