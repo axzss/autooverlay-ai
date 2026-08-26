@@ -9,6 +9,12 @@ pytestmark = pytest.mark.skipif(
 
 
 class TestScreenEnrichment:
+    @pytest.fixture(autouse=True)
+    def _no_real_credentials(self, monkeypatch):
+        # Tests must never depend on (or hit) real Alpaca credentials.
+        for var in ("ALPACA_KEY", "ALPACA_SECRET", "APCA_API_KEY_ID", "APCA_API_SECRET_KEY"):
+            monkeypatch.delenv(var, raising=False)
+
     def test_mock_get_enriched_shape(self, client):
         resp = client.get("/strategy/screen")
         assert resp.status_code == 200
