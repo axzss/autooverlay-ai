@@ -22,6 +22,8 @@ app.add_middleware(
 app.include_router(portfolio_router, tags=["portfolio"])
 app.include_router(trade_router, tags=["trading"])
 app.include_router(strategy_router, tags=["strategy"])
+# Compatibility aliases for frontend clients that use the conventional /api prefix.
+app.include_router(strategy_router, prefix="/api", tags=["strategy"])
 
 
 @app.get("/health")

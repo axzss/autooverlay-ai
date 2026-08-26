@@ -16,6 +16,11 @@ def restore_config():
 
 
 class TestGetStrategyConfig:
+    def test_api_prefix_alias_returns_same_config(self, client, restore_config):
+        response = client.get("/api/strategy/config")
+        assert response.status_code == 200
+        assert response.json()["config"] == client.get("/strategy/config").json()["config"]
+
     def test_module_config_honors_environment_overrides(self, client, restore_config, monkeypatch):
         import importlib
         from backend.app.routes import strategy as strategy_routes
@@ -48,6 +53,13 @@ class TestGetStrategyConfig:
 
 
 class TestPutStrategyConfig:
+    def test_api_prefix_alias_accepts_updates(self, client, restore_config):
+        current = client.get("/strategy/config").json()["config"]
+        current["take_profit_pct"] = 0.45
+        response = client.put("/api/strategy/config", json=current)
+        assert response.status_code == 200
+        assert response.json()["config"]["take_profit_pct"] == 0.45
+
     def test_put_updates_singleton(self, client, restore_config):
         payload = {"take_profit_pct": 0.45, "delta_min": 0.10}
         resp = client.put("/strategy/config", json={
