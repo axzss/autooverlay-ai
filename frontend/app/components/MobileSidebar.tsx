@@ -11,6 +11,7 @@ import {
   Rocket,
   BookOpen,
   LifeBuoy,
+  Scale,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,11 @@ const nav = [
   { name: 'Dashboard', icon: LayoutGrid, href: '/dashboard' },
   { name: 'Assets', icon: Wallet, href: '/assets' },
   { name: 'Terminal', icon: Terminal, href: '/terminal' },
+  {
+    name: 'Council',
+    icon: Scale,
+    href: '/council',
+  },
   { name: 'Settings', icon: Settings, href: '/settings' },
 ]
 

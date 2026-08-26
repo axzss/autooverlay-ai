@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from .routes.council import router as council_router
 from .routes.portfolio import router as portfolio_router
 from .routes.strategy import router as strategy_router
 from .routes.trade import router as trade_router
@@ -26,6 +27,7 @@ app.add_middleware(
 app.include_router(portfolio_router, tags=["portfolio"])
 app.include_router(trade_router, tags=["trading"])
 app.include_router(strategy_router, tags=["strategy"])
+app.include_router(council_router, tags=["council"])
 
 
 def _sanitize(obj):

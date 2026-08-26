@@ -263,76 +263,98 @@ class RayDalio:
 
 
 class BenjaminGraham:
-    """Benjamin Graham — deep value with a margin of safety.
+    """Benjamin Graham — margin of safety as the central concept (Ch. 20),
+    scored against the seven defensive-investor tests of Ch. 14.
 
-    Philosophy: estimate intrinsic value conservatively (earnings power,
-    net current assets); buy only at a meaningful discount. Defensive
-    criteria: adequate size, strong financial condition, earnings stability,
-    dividend record, moderate P/E and P/B. Price is the primary protection.
+    Scoring runs each of the book's real criteria (size, financial
+    condition, earnings stability, 20-year uninterrupted dividend record,
+    one-third decade growth, P/E <= 15 on 3-yr average earnings, price <=
+    1.5x book with PExPB <= 22.5), then applies Ch. 20 inversion checks:
+    what margin remains if estimates prove wrong?
     """
     name = "Benjamin Graham"
     philosophy = (
-        "Margin of safety vs conservative intrinsic value; defensive-investor "
-        "criteria (size, financial strength, earnings record, moderate multiples)."
+        "Margin of safety vs conservative appraised value; the seven "
+        "defensive-investor tests of Chapter 14; inversion per Chapter 20."
     )
 
+    # Weight of each Ch. 14 test in the blended score (financial strength
+    # and price discipline weigh most, per Graham's own emphasis).
+    TEST_WEIGHTS = {1: 1.0, 2: 2.0, 3: 1.5, 4: 1.5, 5: 1.0, 6: 2.0, 7: 1.5}
+
     def score(self, u: dict) -> PersonaVerdict:
+        from .graham_principles import (
+            DEFENSIVE_CRITERIA, evaluate_defensive, inversion_checks,
+            margin_of_safety_pct, MARGIN_OF_SAFETY, MIN_EARNINGS_YIELD_OVER_BOND_PCT,
+        )
+
         bullets: list[str] = []
         parts: list[tuple[float | None, float]] = []
+        results = evaluate_defensive(u)
+        failed_tests: list[int] = []
 
-        price = _get(u, "price")
-        iv = _get(u, "intrinsic_value_estimate")
-        mos = None
-        if price is not None and iv is not None and iv > 0:
-            mos = (iv - price) / iv * 100
-            if mos >= 33:
-                parts.append((95, 4)); bullets.append(f"Margin of safety {mos:.0f}% vs intrinsic value ${iv:.0f} — classic Graham buy zone.")
-            elif mos >= 15:
-                parts.append((68, 3)); bullets.append(f"Margin of safety {mos:.0f}% — acceptable but not generous.")
+        for res in results:
+            n = res["test"]
+            label = f"test {n} ({DEFENSIVE_CRITERIA[n]['name']})"
+            if res["passed"] is True:
+                parts.append((85.0, self.TEST_WEIGHTS[n]))
+                bullets.append(f"Passes {label}: {res['detail']} — Ch. 14 criterion met.")
+            elif res["passed"] is False:
+                failed_tests.append(n)
+                sev = self.TEST_WEIGHTS[n] * 3.0
+                parts.append((30.0, sev))
+                bullets.append(f"Fails {label}: {res['detail']} — excluded from my defensive list.")
             else:
-                parts.append((30, 4)); bullets.append(f"Margin of safety only {mos:.0f}% (or negative) — no cushion, pass.")
+                bullets.append(f"{label}: insufficient data to judge ({res['detail']}).")
 
-        pe = _get(u, "pe_ratio")
-        if pe is not None:
-            ok = pe <= 15
-            parts.append(((85 if ok else 45), 2))
-            bullets.append(f"P/E {pe:.1f}x {'within' if ok else 'above'} my 15x ceiling for defensive buyers.")
+        # Margin-of-safety core (Ch. 20) — the central concept.
+        mos = margin_of_safety_pct(_get(u, "price"), u.get("intrinsic_value_estimate"))
+        if mos is not None:
+            if mos >= MARGIN_OF_SAFETY["min_margin_of_safety_pct"]:
+                parts.append((95, 4))
+                bullets.append(f"Margin of safety {mos:.0f}% vs appraised value — the Ch. 20 buy zone.")
+            elif mos >= MARGIN_OF_SAFETY["acceptable_margin_of_safety_pct"]:
+                parts.append((68, 3))
+                bullets.append(f"Margin of safety {mos:.0f}% — present but not demonstrably adequate.")
+            else:
+                parts.append((28, 4))
+                bullets.append(f"Margin of safety only {mos:.0f}% — without it this is speculation, not investment.")
 
-        pb = _get(u, "pb_ratio")
-        if pb is not None:
-            ok = pb <= 1.5
-            parts.append(((80 if ok else 50), 1))
-            cap = 'ok' if pe is None or pb * pe <= 22.5 else '>22.5 cap breached'
-            bullets.append(f"P/B {pb:.1f}x {'meets' if ok else 'exceeds'} the 1.5x guideline (PExPB {cap}).")
+        # Earnings yield vs bond rate (Ch. 14 note / Ch. 20 earning-power rule).
+        ey = _get(u, "earnings_yield_pct")
+        by = _get(u, "bond_yield_pct")
+        if ey is not None and by is not None:
+            spread = ey - by
+            ok = spread >= MIN_EARNINGS_YIELD_OVER_BOND_PCT + 2
+            parts.append(((82 if ok else 50), 1.5))
+            bullets.append(
+                f"Earnings yield {ey:.1f}% vs bond yield {by:.1f}% — spread {spread:+.1f}pp; "
+                f"{'earning power comfortably clears fixed-income competition' if ok else 'bonds pay nearly as much for no equity risk'}."
+            )
 
-        cr = _get(u, "current_ratio")
-        if cr is not None:
-            ok = cr >= 2
-            parts.append(((82 if ok else 52), 1))
-            bullets.append(f"Current ratio {cr:.1f} {'strong' if ok else 'weak'} — financial condition test.")
+        # Net-net check (Ch. 15 enterprising approach).
+        ncav = _get(u, "net_current_asset_value_per_share")
+        px = _get(u, "price")
+        if ncav is not None and px is not None:
+            ok = px <= ncav
+            parts.append(((98 if ok else 60), 1.5))
+            bullets.append("Price below net current asset value — a true bargain issue." if ok
+                           else f"Price ${px:.0f} above net-current-asset value ${ncav:.0f}/sh — no net-net bargain here.")
 
-        div_yld = _get(u, "dividend_yield_pct")
-        if div_yld is not None:
-            ok = div_yld > 0
-            parts.append(((70 if ok else 55), 1))
-            bullets.append("Dividend paid — uninterrupted-record requirement satisfied." if ok else "No dividend — fails my record-of-dividends criterion.")
-
-        eps_hist = u.get("positive_earnings_years", [])  # e.g., last 7 of 10 years positive
-        yrs = None
-        if isinstance(eps_hist, (list, tuple)):
-            try:
-                pos = sum(1 for x in eps_hist if x and x > 0)
-                yrs = (pos, len(eps_hist))
-            except TypeError:
-                yrs = None
-        if yrs and yrs[1] > 0:
-            ok = yrs[0] >= yrs[1] - 2  # allow 2 losing years out of 10
-            parts.append(((78 if ok else 40), 2))
-            bullets.append(f"Earnings stability: positive in {yrs[0]}/{yrs[1]} recent years.")
+        # Ch. 20 inversion checks.
+        for note in inversion_checks(u):
+            bullets.append(note)
 
         score, _ = _blend(parts)
-        if mos is None and price is None:
-            bullets.insert(0, "No price/intrinsic-value pair provided — cannot compute margin of safety.")
+        if failed_tests:
+            bullets.insert(0,
+                "Defensive verdict: fails " +
+                ", ".join(f"test {n}" for n in sorted(failed_tests)) +
+                f" of {len(DEFENSIVE_CRITERIA)} — Graham's tests eliminate most stocks; that is their purpose.")
+        elif not any(r["passed"] is None for r in results) and results:
+            bullets.insert(0, "Defensive verdict: passes all seven Ch. 14 quality/quantity tests.")
+        if mos is None and px is None:
+            bullets.insert(0, "No price provided — cannot compute margin of safety.")
         return PersonaVerdict(self.name, score, _stance(score), bullets)
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .personas import PERSONAS, DEFAULT_WEIGHTS, PersonaVerdict
+from .mr_market import mr_market_context
 
 
 RECOMMENDATIONS = ("STRONG_BUY", "ACCUMULATE", "HOLD", "AVOID")
@@ -33,6 +34,7 @@ class UnderlyingAssessment:
     majority_stance: str                          # ACCUMULATE / HOLD / AVOID bucket label
     is_split: bool                                # no clear majority (>=2 stances tie-ish)
     dissent: list[dict] = field(default_factory=list)
+    mr_market_context: dict | None = None         # Ch. 8 market-mood regime signal
 
     @property
     def bullish_count(self) -> int:
@@ -125,7 +127,8 @@ class CouncilEngine:
 
         return UnderlyingAssessment(symbol, verdicts, round(consensus, 1),
                                     rec, majority_stance.rstrip("+-") or "HOLD",
-                                    is_split, dissent)
+                                    is_split, dissent,
+                                    mr_market_context=mr_market_context(underlying))
 
     # ------------------------------------------------------------------ #
     def run(self, portfolio: dict, candidates: list[dict]) -> list[UnderlyingAssessment]:
