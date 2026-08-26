@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+import math
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .routes.portfolio import router as portfolio_router
 from .routes.strategy import router as strategy_router
@@ -22,6 +26,27 @@ app.add_middleware(
 app.include_router(portfolio_router, tags=["portfolio"])
 app.include_router(trade_router, tags=["trading"])
 app.include_router(strategy_router, tags=["strategy"])
+
+
+def _sanitize(obj):
+    """Make error payloads JSON-safe: NaN/Infinity cannot be JSON-encoded and
+    used to crash the default RequestValidationError handler into a 500."""
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return repr(obj)
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    try:
+        detail = _sanitize(exc.errors())
+        return JSONResponse(status_code=422, content={"detail": detail})
+    except Exception:
+        return JSONResponse(status_code=422, content={"detail": "validation error"})
 
 
 @app.get("/health")

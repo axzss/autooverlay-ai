@@ -166,9 +166,25 @@ def _parse_delta_pair(text: str):
     if not m:
         return None
     lo, hi = float(m.group(1)), float(m.group(2))
-    if not (0.0 < lo < hi <= 1.0):
+    # Security clamp: injected markdown must not be able to widen the delta
+    # band past sane option-selling bounds.
+    lo = min(max(lo, 0.01), 0.90)
+    hi = min(max(hi, 0.02), 0.95)
+    if not (lo < hi):
         return None
     return lo, hi
+
+
+def _clamp_int(value, low: int, high: int) -> int:
+    return min(max(int(value), low), high)
+
+
+def _clamp_float(value, low: float, high: float) -> float:
+    import math
+
+    if not math.isfinite(float(value)):
+        return high
+    return min(max(float(value), low), high)
 
 
 def parse_handoff(markdown: str) -> Dict[str, TierPolicy]:
@@ -224,7 +240,7 @@ def parse_handoff(markdown: str) -> Dict[str, TierPolicy]:
             parsed_any = True
         dm = re.search(r"DTE\s*<?=?\s*(\d+)", line)
         if dm:
-            result["high"].max_dte = int(dm.group(1))
+            result["high"].max_dte = _clamp_int(dm.group(1), 1, 365)
 
     # High tier covered-call-only comes from the eligibility table row.
     m = re.search(r"\|\s*High[^|]*\|\s*[^|]*\|\s*([^|]*)\|\s*([^|]*)\|",
@@ -248,8 +264,10 @@ def parse_handoff(markdown: str) -> Dict[str, TierPolicy]:
         line = m.group(0)
         dm = re.search(r"delta\s*<?=?\s*(0\.\d+)", line)
         if dm:
+            # Security clamp: a hostile/injected council_report.md must not be
+            # able to raise the TSLA delta cap or size multiplier.
             SYMBOL_OVERRIDES.setdefault("TSLA", {})["delta_max"] = \
-                float(dm.group(1))
+                _clamp_float(dm.group(1), 0.01, 0.50)
             SYMBOL_OVERRIDES["TSLA"]["reason"] = (
                 f"council handoff: TSLA restricted to delta ≤{dm.group(1)}")
             hm = re.search(r"half[- ]?size", line.lower())
@@ -258,7 +276,10 @@ def parse_handoff(markdown: str) -> Dict[str, TierPolicy]:
             vm = re.search(r"(?:until|below)\s*vol\s*<?\s*(\d+(?:\.\d+)?)\s*%",
                            line)
             if vm:
-                SYMBOL_OVERRIDES["TSLA"]["until_vol_below"] = _num(vm.group(1))
+                # Must stay strictly positive so the override cannot become
+                # permanently-active (until_vol_below=0) via injection.
+                SYMBOL_OVERRIDES["TSLA"]["until_vol_below"] = \
+                    _clamp_float(vm.group(1), 1.0, 500.0)
             parsed_any = True
 
     if not parsed_any:

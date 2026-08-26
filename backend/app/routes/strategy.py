@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, constr
 
 from ..alpaca_client import AlpacaClient, is_configured, parse_occ_symbol
 from ..mock_data import mock_positions, mock_screen_candidates
@@ -34,16 +34,19 @@ _active_config = StrategyConfig()
 
 
 class StrategyConfigModel(BaseModel):
-    take_profit_pct: float
-    stop_loss_mult: float
-    roll_delta: float
+    # Security: reject NaN/Infinity outright at parse time (raw-JSON bodies can
+    # smuggle them past httpx-level checks); they previously flowed into
+    # validate() where NaN comparisons are all False.
+    take_profit_pct: float = Field(..., allow_inf_nan=False)
+    stop_loss_mult: float = Field(..., allow_inf_nan=False)
+    roll_delta: float = Field(..., allow_inf_nan=False)
     roll_min_dte: int
-    delta_min: float
-    delta_max: float
+    delta_min: float = Field(..., allow_inf_nan=False)
+    delta_max: float = Field(..., allow_inf_nan=False)
     dte_min: int
     dte_max: int
-    max_concentration_pct: float
-    min_cash_reserve_pct: float
+    max_concentration_pct: float = Field(..., allow_inf_nan=False)
+    min_cash_reserve_pct: float = Field(..., allow_inf_nan=False)
 
 
 @router.get("/strategy/config")
@@ -65,7 +68,11 @@ async def put_strategy_config(body: StrategyConfigModel) -> dict:
 
 
 class ScreenRequest(BaseModel):
-    symbols: Optional[List[str]] = Field(default=None, description="Restrict scan to these underlyings")
+    # Security bounds: cap the symbols list (length + item size) so a hostile
+    # client cannot push unbounded payloads into the scan pipeline.
+    symbols: Optional[List[constr(min_length=1, max_length=16, pattern=r"^[A-Za-z0-9.^\-]+$")]] = Field(
+        default=None, description="Restrict scan to these underlyings", max_length=200,
+    )
     min_open_interest: int = Field(default=0, ge=0)
     max_annualized_return: float = Field(default=10.0, gt=0, description="Sanity cap on annualized yield")
     top_n: int = Field(default=5, ge=1, le=25)
@@ -134,12 +141,20 @@ async def screen_strategies_get(
     top_n: int = 5,
     full: bool = True,
 ) -> dict:
-    req = ScreenRequest(
-        symbols=[s.strip().upper() for s in symbols.split(",")] if symbols else None,
-        min_open_interest=min_open_interest,
-        top_n=top_n,
-        full=full,
-    )
+    # Security fix: validate explicitly and translate failures to a 422 —
+    # constructing ScreenRequest directly used to raise an unhandled
+    # ValidationError -> HTTP 500 for hostile query params (top_n=-1 etc.).
+    try:
+        req = ScreenRequest(
+            symbols=[s.strip().upper() for s in symbols.split(",")] if symbols else None,
+            min_open_interest=min_open_interest,
+            top_n=top_n,
+            full=full,
+        )
+    except ValidationError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail=str(exc.errors()[:5]))
     return await _screen(req)
 
 

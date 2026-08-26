@@ -13,6 +13,7 @@ gracefully.
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, asdict, fields
 
@@ -56,6 +57,11 @@ class StrategyConfig:
             if not isinstance(val, (int, float)) or isinstance(val, bool):
                 errors.append(f"{name} must be numeric")
                 return
+            # Security: reject NaN / +/-Infinity — comparisons with NaN are all
+            # False, so an unfixed _check would silently accept poisoned values.
+            if not math.isfinite(val):
+                errors.append(f"{name} must be finite")
+                return
             if positive and val <= 0:
                 errors.append(f"{name} must be > 0")
             if low is not None and val <= low:
@@ -64,7 +70,7 @@ class StrategyConfig:
                 errors.append(f"{name} must be < {high}")
 
         _check("take_profit_pct", low=0.0, high=1.0)
-        _check("stop_loss_mult", positive=True)
+        _check("stop_loss_mult", low=0.0, high=1000.0)
         _check("roll_delta", low=0.0, high=1.0)
         _check("delta_min", low=0.0, high=1.0)
         _check("delta_max", low=0.0, high=1.0)
@@ -106,7 +112,13 @@ class StrategyConfig:
                 else:
                     if isinstance(value, bool):
                         continue
-                    clean[key] = float(value)
+                    num = float(value)
+                    # Security: reject non-finite values (NaN/Infinity) coming
+                    # from env JSON or API payloads — validate() comparisons
+                    # cannot catch them.
+                    if not math.isfinite(num):
+                        continue
+                    clean[key] = num
             except (TypeError, ValueError):
                 continue  # ignore bad types gracefully
         return cls(**clean)
