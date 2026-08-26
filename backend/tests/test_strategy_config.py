@@ -16,6 +16,20 @@ def restore_config():
 
 
 class TestGetStrategyConfig:
+    def test_module_config_honors_environment_overrides(self, client, restore_config, monkeypatch):
+        import importlib
+        from backend.app.routes import strategy as strategy_routes
+
+        monkeypatch.setenv(
+            "STRATEGY_CONFIG_JSON",
+            '{"take_profit_pct": 0.75, "delta_min": 0.10}',
+        )
+        importlib.reload(strategy_routes)
+
+        cfg = client.get("/strategy/config").json()["config"]
+        assert cfg["take_profit_pct"] == 0.75
+        assert cfg["delta_min"] == 0.10
+
     def test_get_returns_all_fields(self, client, restore_config):
         resp = client.get("/strategy/config")
         assert resp.status_code == 200
