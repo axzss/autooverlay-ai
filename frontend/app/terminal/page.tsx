@@ -2,7 +2,7 @@
 
 import Sidebar from '@/components/Sidebar'
 import Header from '@/components/Header'
-import AgentTerminal from '@/components/AgentTerminal'
+import TerminalClient from '@/components/terminal/TerminalClient'
 
 export default function TerminalPage() {
   return (
@@ -11,7 +11,7 @@ export default function TerminalPage() {
       <div className="flex flex-1 flex-col min-w-0">
         <Header />
         <main className="flex-1 overflow-hidden">
-          <AgentTerminal />
+          <TerminalClient />
         </main>
       </div>
     </div>

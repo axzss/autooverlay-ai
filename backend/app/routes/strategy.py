@@ -28,6 +28,7 @@ router = APIRouter()
 # which honors the optional STRATEGY_CONFIG_JSON env var.
 # ---------------------------------------------------------------------------
 from agent.config import StrategyConfig  # noqa: E402
+from agent.decision_engine import DecisionEngine  # noqa: E402
 
 _active_config = StrategyConfig()
 
@@ -68,6 +69,7 @@ class ScreenRequest(BaseModel):
     min_open_interest: int = Field(default=0, ge=0)
     max_annualized_return: float = Field(default=10.0, gt=0, description="Sanity cap on annualized yield")
     top_n: int = Field(default=5, ge=1, le=25)
+    full: bool = Field(default=True, description="Run the agent DecisionEngine and enrich candidates")
 
 
 def _candidate_from_snapshot(pos_symbol: str, pos_qty: float, snap: dict) -> dict | None:
@@ -103,6 +105,7 @@ def _candidate_from_snapshot(pos_symbol: str, pos_qty: float, snap: dict) -> dic
     return {
         "symbol": pos_symbol,
         "position_qty": pos_qty,
+        "underlying_price": underlying_price,
         "contracts_available": contracts,
         "option_symbol": symbol,
         "strike_price": strike,
@@ -129,11 +132,13 @@ async def screen_strategies_get(
     symbols: Optional[str] = None,
     min_open_interest: int = 0,
     top_n: int = 5,
+    full: bool = True,
 ) -> dict:
     req = ScreenRequest(
         symbols=[s.strip().upper() for s in symbols.split(",")] if symbols else None,
         min_open_interest=min_open_interest,
         top_n=top_n,
+        full=full,
     )
     return await _screen(req)
 
@@ -143,21 +148,136 @@ async def screen_strategies_post(req: ScreenRequest) -> dict:
     return await _screen(req)
 
 
+def _match_key(cand: dict) -> tuple:
+    return (
+        cand.get("option_symbol") or "",
+        cand.get("symbol", ""),
+        float(cand.get("strike_price") or 0),
+        cand.get("expiration_date") or "",
+    )
+
+
+def _fallback_enrichment(cand: dict, engine: DecisionEngine) -> dict:
+    """Score a candidate the engine filtered out (lots/DTE/delta bounds).
+
+    Still returns a real composite risk score plus an explicit trace of why
+    it did not surface as a ranked recommendation.
+    """
+    dte = int(cand.get("days_to_expiry") or 0)
+    delta = abs(float(cand.get("delta") or 0))
+    iv = float(cand.get("implied_volatility") or 0)
+    underlying = float(cand.get("underlying_price") or 0)
+    strike = float(cand.get("strike_price") or 0)
+    ann_yield = float(cand.get("annualized_return_rate") or 0)
+    risk_score = engine.cc._risk_score(
+        iv=iv, delta=delta, dte=dte, underlying=underlying,
+        strike=strike, strike_above_basis=None,
+    ) if underlying > 0 and strike > 0 else 50
+    recommendation = engine.cc._recommendation(ann_yield, risk_score)
+    qty = float(cand.get("position_qty") or 0)
+    trace = [
+        f"holding check: {qty:g} shares of {cand.get('symbol', '')} "
+        f"= {int(qty) // 100} full lot(s) — "
+        f"{'✓' if qty >= 100 else '✗ below one full lot'}",
+        f"DTE {dte} vs engine band {engine.cc.min_dte}-{engine.cc.max_dte} — "
+        f"{'✓' if engine.cc.min_dte <= dte <= engine.cc.max_dte else '✗ outside band'}",
+        f"delta {delta:.2f} vs band {engine.cc.min_delta:.2f}-"
+        f"{engine.cc.MAX_DELTA:.2f} — "
+        f"{'✓' if engine.cc.min_delta <= delta <= engine.cc.MAX_DELTA else '✗ outside band'}",
+        f"risk score {risk_score}/100 from IV, delta, DTE gamma, cushion",
+        f"verdict: {recommendation}",
+    ]
+    rationale = (
+        f"{cand.get('symbol', '')}: covered call at ${strike:.2f}, {dte} DTE, "
+        f"{ann_yield * 100:.1f}% annualized. Risk score {risk_score}/100. "
+        f"=> {recommendation}"
+    )
+    return {
+        "risk_score": int(risk_score),
+        "action": recommendation,
+        "rationale": rationale,
+        "reasoning_trace": trace,
+    }
+
+
+def _enrich_with_engine(
+    candidates: List[dict], positions: List[dict]
+) -> tuple[List[dict], Optional[dict]]:
+    """Run DecisionEngine.evaluate over candidates + positions and merge its
+    risk_score / action / rationale / reasoning_trace into each candidate.
+
+    Returns (enriched_candidates, portfolio_context).
+    """
+    engine = DecisionEngine(config=_active_config)
+    try:
+        result = engine.evaluate(
+            [],  # no CSP chain in this endpoint — covered calls only
+            list(candidates),
+            list(positions),
+            open_option_positions=[],  # mock/live-safe: nothing to exit yet
+        )
+    except Exception:
+        return candidates, None
+
+    by_key: dict = {}
+    for rec in result.get("cc_results", []):
+        key = (
+            rec.get("option_symbol") or "",
+            rec.get("symbol", ""),
+            float(rec.get("strike_price") or 0),
+            rec.get("expiration_date") or "",
+        )
+        by_key[key] = rec
+
+    enriched: List[dict] = []
+    for cand in candidates:
+        rec = by_key.get(_match_key(cand))
+        if rec is not None:
+            cand = {
+                **cand,
+                "risk_score": rec["risk_score"],
+                "action": rec["recommendation"],
+                "rationale": rec["rationale"],
+                "reasoning_trace": rec.get("reasoning_trace", []),
+            }
+        else:
+            cand = {**cand, **_fallback_enrichment(cand, engine)}
+        enriched.append(cand)
+
+    portfolio_context = result.get("portfolio_context")
+    return enriched, portfolio_context
+
+
 async def _screen(req: ScreenRequest) -> dict:
     if not is_configured():
         cands = mock_screen_candidates()
         if req.symbols:
             cands = [c for c in cands if c.get("symbol") in req.symbols]
         cands = [c for c in cands if c.get("open_interest", 0) >= req.min_open_interest]
-        return {"mode": "mock", "strategy": "covered_call", "count": len(cands[: req.top_n]), "candidates": cands[: req.top_n]}
+        cands = cands[: req.top_n]
+        response: dict = {"mode": "mock", "strategy": "covered_call", "count": len(cands), "candidates": cands}
+        if req.full:
+            positions = [p for p in mock_positions() if p.get("asset_class") == "us_equity"]
+            enriched, portfolio_context = _enrich_with_engine(cands, positions)
+            response["candidates"] = enriched
+            if portfolio_context is not None:
+                response["portfolio_context"] = portfolio_context
+        return response
 
     client = AlpacaClient()
     try:
         positions = [p for p in client.get_positions() if p.get("asset_class") == "us_equity"]
     except RuntimeError as exc:
         cands = mock_screen_candidates()
-        return {"mode": "error", "detail": str(exc), "strategy": "covered_call",
-                "count": len(cands), "candidates": cands}
+        response = {"mode": "error", "detail": str(exc), "strategy": "covered_call",
+                    "count": len(cands), "candidates": cands}
+        if req.full:
+            mock_pos = [p for p in mock_positions() if p.get("asset_class") == "us_equity"]
+            enriched, portfolio_context = _enrich_with_engine(cands, mock_pos)
+            response["candidates"] = enriched
+            if portfolio_context is not None:
+                response["portfolio_context"] = portfolio_context
+        return response
 
     wanted = set(req.symbols or [])
     candidates: List[dict] = []
@@ -177,4 +297,11 @@ async def _screen(req: ScreenRequest) -> dict:
 
     candidates.sort(key=lambda c: c.get("annualized_return_rate", 0), reverse=True)
     candidates = candidates[: req.top_n]
-    return {"mode": "live", "strategy": "covered_call", "count": len(candidates), "candidates": candidates}
+
+    response = {"mode": "live", "strategy": "covered_call", "count": len(candidates), "candidates": candidates}
+    if req.full:
+        enriched, portfolio_context = _enrich_with_engine(candidates, positions)
+        response["candidates"] = enriched
+        if portfolio_context is not None:
+            response["portfolio_context"] = portfolio_context
+    return response
