@@ -34,6 +34,10 @@ class StrategyConfig:
     # Portfolio guards
     max_concentration_pct: float = 25.0  # max % of portfolio per ticker
     min_cash_reserve_pct: float = 10.0   # min % cash remaining after collateral
+    # Council §6 correlation rule: tech complex (AAPL/MSFT/NVDA/QQQ) combined
+    # exposure cap as % of deployed overlay capital.
+    max_sector_concentration_pct: float = 40.0
+    sector_cap_group: tuple = ("AAPL", "MSFT", "NVDA", "QQQ")
 
     # Kill-switch thresholds (agent halt conditions)
     kill_max_drawdown_pct: float = 5.0           # peak-to-current drawdown that halts
@@ -67,6 +71,7 @@ class StrategyConfig:
         _check("dte_min", positive=True)
         _check("dte_max", positive=True)
         _check("max_concentration_pct", low=0.0, high=100.0)
+        _check("max_sector_concentration_pct", low=0.0, high=100.0)
         _check("min_cash_reserve_pct", low=0.0, high=100.0)
 
         if self.delta_min >= self.delta_max:
@@ -88,6 +93,12 @@ class StrategyConfig:
         clean = {}
         for key, value in (data or {}).items():
             if key not in known:
+                continue
+            if key == "sector_cap_group":
+                try:
+                    clean[key] = tuple(str(s).upper() for s in value)
+                except (TypeError, ValueError):
+                    continue
                 continue
             try:
                 if key in ("roll_min_dte", "dte_min", "dte_max"):

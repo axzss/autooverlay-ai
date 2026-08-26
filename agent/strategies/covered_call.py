@@ -38,14 +38,50 @@ class CoveredCallStrategy:
         min_annualized_yield: float = 0.12,
         good_annualized_yield: float = 0.25,
         config: "StrategyConfig | None" = None,
+        tier_policy: "dict | object | None" = None,
     ):
+        """
+        ``tier_policy``: optional council volatility-tier policy (a
+        ``agent.council.handoff.TierPolicy`` or an equivalent dict). When
+        given, its delta band / DTE ceiling / size multiplier take effect
+        unless explicitly overridden by the matching keyword args; explicit
+        args and StrategyConfig defaults still win otherwise.
+        """
         cfg = config or StrategyConfig()
-        self.min_dte = min_dte if min_dte is not None else cfg.dte_min
-        self.max_dte = max_dte if max_dte is not None else cfg.dte_max
-        self.min_delta = min_delta if min_delta is not None else cfg.delta_min
-        self.max_delta = max_delta if max_delta is not None else cfg.delta_max
+        pol = self._normalize_policy(tier_policy)
+        self.tier_policy = pol
+        # Precedence: explicit arg > tier policy > StrategyConfig defaults.
+        self.min_dte = min_dte if min_dte is not None else (
+            pol["dte_min"] if pol and pol.get("dte_min") else cfg.dte_min)
+        self.max_dte = max_dte if max_dte is not None else (
+            pol["max_dte"] if pol else cfg.dte_max)
+        self.min_delta = min_delta if min_delta is not None else (
+            pol["delta_min"] if pol else cfg.delta_min)
+        self.max_delta = max_delta if max_delta is not None else (
+            pol["delta_max"] if pol else cfg.delta_max)
+        self.size_multiplier = float(pol.get("size_multiplier", 1.0)) if pol else 1.0
         self.min_annualized_yield = min_annualized_yield
         self.good_annualized_yield = good_annualized_yield
+
+    @staticmethod
+    def _normalize_policy(tier_policy) -> "dict | None":
+        """Accept a TierPolicy dataclass or a plain dict; return dict or None."""
+        if tier_policy is None:
+            return None
+        if hasattr(tier_policy, "to_dict"):
+            tier_policy = tier_policy.to_dict()
+        try:
+            allowed = tuple(s.upper() for s in
+                            tier_policy.get("allowed_strategies", ()))
+        except AttributeError:
+            allowed = ()
+        return {
+            "delta_min": float(tier_policy.get("delta_min", 0.15)),
+            "delta_max": float(tier_policy.get("delta_max", 0.35)),
+            "max_dte": int(tier_policy.get("max_dte", 45)),
+            "size_multiplier": float(tier_policy.get("size_multiplier", 1.0)),
+            "allowed_strategies": allowed,
+        }
 
     # ------------------------------------------------------------------ #
     # Public API                                                          #
@@ -84,12 +120,42 @@ class CoveredCallStrategy:
             if lots < 1:
                 continue  # cannot write a covered call without a full lot
 
+            # Council tier size multiplier (restricted tiers write fewer lots).
+            contracts = max(1, int(lots * self.size_multiplier))
+
+            # Council tier gate: block if this tier disallows covered calls.
+            if (self.tier_policy
+                    and "COVERED_CALL" not in
+                    self.tier_policy["allowed_strategies"]):
+                results.append({
+                    "strategy": "COVERED_CALL",
+                    "symbol": symbol,
+                    "option_symbol": opp.get("option_symbol"),
+                    "contracts": 0,
+                    "strike_price": float(opp.get("strike_price") or 0),
+                    "expiration_date": opp.get("expiration_date"),
+                    "recommendation": "BLOCKED_BY_COUNCIL_TIER",
+                    "rationale": (
+                        f"{symbol}: covered call blocked — council handoff "
+                        f"restricts this volatility tier to "
+                        f"{','.join(self.tier_policy['allowed_strategies'])} "
+                        f"only."),
+                    "reasoning_trace": [
+                        f"council tier gate: allowed strategies = "
+                        f"{','.join(self.tier_policy['allowed_strategies'])}; "
+                        f"covered call not permitted → ✗ BLOCKED",
+                        "council rule cited: Investment Council Report §8 "
+                        "HANDOFF eligibility table",
+                    ],
+                })
+                continue
+
             dte = self._dte(opp, as_of)
             if dte is None or not (self.min_dte <= dte <= self.max_dte):
                 continue
 
             delta = abs(float(opp.get("delta") or 0))
-            if not (self.min_delta <= delta <= self.MAX_DELTA):
+            if not (self.min_delta <= delta <= self.max_delta):
                 continue
 
             underlying = float(opp.get("underlying_price") or 0)
@@ -114,7 +180,10 @@ class CoveredCallStrategy:
                 f"holding check: {qty} shares of {symbol} = {lots} full lot(s) ✓",
                 f"DTE {dte} within {self.min_dte}-{self.max_dte} band ✓",
                 f"delta {delta:.2f} within {self.min_delta:.2f}-"
-                f"{self.MAX_DELTA:.2f} band ✓",
+                f"{self.max_delta:.2f} band ✓",
+                *( [f"council tier sizing: size multiplier x{self.size_multiplier} "
+                    f"applied → {contracts} contract(s) of {lots} available lot(s)"]
+                   if self.size_multiplier < 1 else [] ),
                 f"premium ${premium:.2f}/share → annualized yield "
                 f"{ann_yield*100:.1f}% (floor {self.min_annualized_yield*100:.0f}%) "
                 f"{'✓' if ann_yield >= self.min_annualized_yield else '✗'}",
@@ -141,15 +210,16 @@ class CoveredCallStrategy:
                 "strategy": "COVERED_CALL",
                 "symbol": symbol,
                 "option_symbol": opp.get("option_symbol"),
-                "contracts": lots,
-                "shares_covered": lots * 100,
+                "contracts": contracts,
+                "tier_size_multiplier": self.size_multiplier,
+                "shares_covered": contracts * 100,
                 "strike_price": strike,
                 "expiration_date": opp.get("expiration_date"),
                 "dte": dte,
                 "delta": round(delta, 3),
                 "implied_volatility": round(float(opp.get("implied_volatility") or 0), 4),
                 "premium_per_share": round(premium, 2),
-                "total_premium": round(premium * 100 * lots, 2),
+                "total_premium": round(premium * 100 * contracts, 2),
                 "annualized_premium_yield": round(ann_yield, 4),
                 "strike_above_cost_basis": strike_above_basis,
                 "risk_score": risk_score,
@@ -158,7 +228,7 @@ class CoveredCallStrategy:
                 "reasoning_trace": reasoning_trace,
             })
 
-        return sorted(results, key=lambda r: r["annualized_premium_yield"], reverse=True)
+        return sorted(results, key=lambda r: r.get("annualized_premium_yield", 0), reverse=True)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                             #
