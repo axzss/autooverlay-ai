@@ -56,7 +56,7 @@ def _headers() -> dict[str, str]:
         )
     return {
         "APCA-API-KEY-ID": get_key() or "",
-        "APCA-API-SECRET": get_secret() or "",
+        "APCA-API-SECRET-KEY": get_secret() or "",
         "Content-Type": "application/json",
     }
 
