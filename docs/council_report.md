@@ -167,3 +167,35 @@ Evaluated via `agent.council.risk_mitigation.evaluate_kill_switch`; on halt, no 
 ---
 
 *Report generated from real Alpaca snapshots (`docs/market_snapshots.json`, n_days_used=30 per ticker) and live `CouncilEngine` output. No code in `agent/` or `backend/` was modified.*
+
+---
+
+## 9. Graham Principles Audit — *The Intelligent Investor* (Graham, Zweig ed.)
+
+Distilled from the full text into `agent/council/graham_principles.py` (Ch. 14 seven defensive tests; Ch. 15 enterprising approaches incl. net-nets; Ch. 8 Mr. Market psychology → `agent/council/mr_market.py`; Ch. 20 margin of safety + inversion). Book text kept local only (gitignored).
+
+### How far the previous screening fell short
+
+| Ch. 14 test | Book criterion | Old persona behavior | Gap now closed |
+|---|---|---|---|
+| 1. Adequate size | ≥$100M sales (industrial) / $50M assets (utility) | Not scored at all | Scored |
+| 2. Financial condition | Current ratio ≥2 AND LT debt ≤ working capital | Only current ratio | Both legs scored |
+| 3. Earnings stability | Some earnings **each** of past 10 years | Allowed 2 losing years in 10 — wrong | Strict: any deficit year fails |
+| 4. Dividend record | Uninterrupted **20 years** | "dividend_yield > 0 today" — badly short | 20y uninterrupted record required |
+| 5. Earnings growth | ≥1/3 over 10y (3-yr averages) | Not scored | Scored at 33.3% |
+| 6. Moderate P/E | ≤15× average earnings of past 3 years | P/E ≤ 15 on trailing only | Ceiling retained, keyed to 3-yr avg earnings input |
+| 7. Price/assets | ≤1.5× book, or PExPB ≤22.5 tradeoff | Product check existed but not as a formal test | Formal test incl. the 9x-earnings/2.5x-assets tradeoff |
+
+Also previously missing: earnings-yield-vs-bond-rate rule (E/P should clear high-grade bond yields), net-current-asset (net-net) bargain test, and any inversion reasoning.
+
+### Risk mitigation per Graham's own warnings
+
+- **Speculation vs investment (Ch. 20):** a true investment requires a margin demonstrable by figures and reasoning. The persona now labels sub-15% (or negative) margin cases explicitly as speculation, not merely low-scored.
+- **Margin-of-safety erosion:** MoS depends entirely on price paid — large at one price, nonexistent higher. Inversion bullets quantify exactly how much estimate error survives: e.g., at 45x earnings, reversion to Graham's 15x ceiling alone implies ~67% downside with zero change in fundamentals.
+- **Fair-weather buying:** Graham's chief-loss warning — mistaking prosperity for earning power — is enforced by strict test 3 (no deficit years) rather than averaging.
+- **Inflation:** fixed claims erode; equities are not automatic hedges. Council macro inputs (`macro_inflation_pct`) feed Dalio; Graham's answer is demanding real earning power over bond rates (now an explicit scoring component).
+- **Market timing / Mr. Market (Ch. 8):** `mr_market_context` on every `UnderlyingAssessment` classifies mood (euphoric / indifferent / panicky) from recent prices + realized vol, with guidance to buy when Mr. Market is frightened, refrain/sell when euphoric, and otherwise ignore quotations and attend to operations and dividends.
+
+### Caveats
+
+Graham's thresholds are 1972 figures ("all our minimum figures must be arbitrary"); they are screening floors, not valuation outputs. The council applies them as exclusion tests with weighted penalties — faithful to their purpose of eliminating most candidates — while margin of safety remains the central, price-dependent concept that no static screen substitutes for.
