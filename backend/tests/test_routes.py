@@ -30,6 +30,11 @@ class TestHealth:
 # ---------------------------------------------------------------------------
 
 class TestPortfolio:
+    def test_api_prefix_alias_returns_portfolio(self, client):
+        response = client.get("/api/portfolio")
+        assert response.status_code == 200
+        assert response.json()["mode"] in ("mock", "live", "error")
+
     def test_portfolio_endpoint_exists(self, client):
         for path in ("/api/portfolio", "/portfolio"):
             resp = client.get(path)
@@ -63,6 +68,15 @@ class TestPortfolio:
 # ---------------------------------------------------------------------------
 
 class TestTrade:
+    def test_api_prefix_alias_validates_trade(self, client):
+        response = client.post("/api/trade", json={"nonsense": True})
+        assert response.status_code == 422
+
+    def test_api_prefix_alias_lists_orders(self, client):
+        response = client.get("/api/trade/orders")
+        assert response.status_code == 200
+        assert response.json()["mode"] in ("mock", "live")
+
     def _submit(self, client, payload):
         for path in ("/api/trade", "/api/trade/order", "/trade"):
             resp = client.post(path, json=payload)
