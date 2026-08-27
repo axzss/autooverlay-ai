@@ -23,6 +23,10 @@ class AlpacaConfigError(RuntimeError):
     """Raised when a call is attempted without credentials configured."""
 
 
+class AlpacaAPIError(RuntimeError):
+    """Raised when Alpaca cannot return a valid API response."""
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     return value.strip() if value else default
@@ -71,34 +75,74 @@ class AlpacaClient:
 
     def _trading_request(self, method: str, path: str, json_body: dict | None = None) -> Any:
         url = f"{get_base_url().rstrip('/')}{path}"
-        with httpx.Client(timeout=self.timeout) as client:
-            resp = client.request(method, url, headers=_headers(), json=json_body)
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                resp = client.request(method, url, headers=_headers(), json=json_body)
+        except httpx.TimeoutException as exc:
+            raise AlpacaAPIError(f"Alpaca request timed out: {method} {path}") from exc
+        except httpx.RequestError as exc:
+            raise AlpacaAPIError(f"Alpaca API unreachable: {method} {path}") from exc
         if resp.status_code >= 400:
-            raise RuntimeError(f"Alpaca API error {resp.status_code}: {resp.text[:500]}")
+            raise AlpacaAPIError(f"Alpaca API error {resp.status_code}: {resp.text[:500]}")
         if resp.status_code == 204 or not resp.content:
             return {}
-        return resp.json()
+        try:
+            return resp.json()
+        except (TypeError, ValueError) as exc:
+            raise AlpacaAPIError("Alpaca API returned invalid JSON") from exc
 
     def get_account(self) -> dict:
-        return self._trading_request("GET", "/v2/account")
+        result = self._trading_request("GET", "/v2/account")
+        if not isinstance(result, dict):
+            raise AlpacaAPIError("Alpaca account response must be an object")
+        return result
 
     def get_positions(self) -> list[dict]:
-        return self._trading_request("GET", "/v2/positions") or []
+        result = self._trading_request("GET", "/v2/positions") or []
+        if not isinstance(result, list) or not all(isinstance(p, dict) for p in result):
+            raise AlpacaAPIError("Alpaca positions response must be a list")
+        return result
 
     def submit_order(self, order: dict) -> dict:
-        return self._trading_request("POST", "/v2/orders", json_body=order)
+        result = self._trading_request("POST", "/v2/orders", json_body=order)
+        if not isinstance(result, dict):
+            raise AlpacaAPIError("Alpaca order response must be an object")
+        return result
 
     def list_orders(self, status: str = "open", limit: int = 50) -> list[dict]:
-        return (
+        result = (
             self._trading_request(
                 "GET", f"/v2/orders?status={status}&limit={limit}"
             )
             or []
         )
+        if not isinstance(result, list) or not all(isinstance(o, dict) for o in result):
+            raise AlpacaAPIError("Alpaca orders response must be a list")
+        return result
 
     # -- data api (option chains) -----------------------------------------
 
     # -- data api (equity bars) ---------------------------------------------
+
+    def _data_request(self, method: str, url: str, params: dict) -> dict:
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                resp = client.request(method, url, headers=_headers(), params=params)
+        except httpx.TimeoutException as exc:
+            raise AlpacaAPIError(f"Alpaca data request timed out: {method} {url}") from exc
+        except httpx.RequestError as exc:
+            raise AlpacaAPIError(f"Alpaca data API unreachable: {method} {url}") from exc
+        if resp.status_code >= 400:
+            raise AlpacaAPIError(
+                f"Alpaca data API error {resp.status_code}: {resp.text[:300]}"
+            )
+        try:
+            payload = resp.json()
+        except (TypeError, ValueError) as exc:
+            raise AlpacaAPIError("Alpaca data API returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise AlpacaAPIError("Alpaca data API response must be an object")
+        return payload
 
     def get_daily_bars(self, symbol: str, days: int = 365) -> list[dict]:
         """Return daily equity bars (list of {c, t, ...}) for the trailing window."""
@@ -115,22 +159,24 @@ class AlpacaClient:
             "limit": 10000,
             "feed": "iex",
         }
-        with httpx.Client(timeout=self.timeout) as client:
-            resp = client.get(url, headers=_headers(), params=params)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Alpaca data API error {resp.status_code}: {resp.text[:300]}")
-        bars = ((resp.json() or {}).get("bars") or {}).get(symbol.upper(), [])
+        payload = self._data_request("GET", url, params)
+        bars_by_symbol = payload.get("bars")
+        if not isinstance(bars_by_symbol, dict):
+            raise AlpacaAPIError("Alpaca bars response must contain a mapping")
+        bars = bars_by_symbol.get(symbol.upper(), [])
+        if not isinstance(bars, list) or not all(isinstance(bar, dict) for bar in bars):
+            raise AlpacaAPIError("Alpaca bars response must contain a list")
         return bars
 
     def get_option_snapshots(self, underlying: str) -> list[dict]:
         """Return option snapshots for an underlying (indicative feed)."""
         url = f"{get_data_url().rstrip('/')}/v1beta1/options/snapshots/{underlying.upper()}"
         params = {"feed": "indicative", "limit": 500}
-        with httpx.Client(timeout=self.timeout) as client:
-            resp = client.get(url, headers=_headers(), params=params)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Alpaca data API error {resp.status_code}: {resp.text[:300]}")
-        return (resp.json() or {}).get("snapshots", [])
+        payload = self._data_request("GET", url, params)
+        snapshots = payload.get("snapshots", [])
+        if not isinstance(snapshots, list) or not all(isinstance(snapshot, dict) for snapshot in snapshots):
+            raise AlpacaAPIError("Alpaca snapshots response must contain a list")
+        return snapshots
 
 
 def parse_occ_symbol(symbol: str) -> dict:

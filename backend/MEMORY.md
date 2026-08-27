@@ -38,6 +38,8 @@ such as `/portfolio` or `/trade` intentionally return HTTP 404.
 - The correct Alpaca secret header is `APCA-API-SECRET-KEY`.
 - Option orders must use `day` time-in-force and valid OCC symbols.
 - Valid OCC symbols such as `AAPL240621C00175000` are accepted for covered-call/CSP order flows.
+- Alpaca timeout, network, HTTP, invalid JSON, and invalid response shapes use `AlpacaAPIError` (a `RuntimeError` subtype).
+- Live trade/order endpoint failures are exposed as HTTP 502 instead of being simulated as mock data.
 - Invalid strategy configuration and trade payloads are rejected with HTTP 422.
 - Non-finite values such as NaN/Infinity are sanitized in validation errors.
 - Mock trade responses clearly indicate that no broker order was submitted.
@@ -115,8 +117,7 @@ The warning is a non-blocking Starlette/httpx deprecation warning. Python compil
 
 ### Backend/API integration
 
-1. Add an explicit backend agent-run endpoint. The current `AgentControl` button has no execution endpoint behind it.
-2. Add response models and consistent structured error responses.
+1. Add response models and consistent structured error responses.
 3. Add request correlation IDs and structured logging.
 4. Add safe retry/backoff policy for transient Alpaca failures.
 5. Review order idempotency and duplicate-submission protection.
