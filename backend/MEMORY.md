@@ -25,7 +25,16 @@ AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Ag
 - `POST /trade` — validate and submit or simulate an order
 - `GET /trade/orders` — list live or mock orders
 
-The FastAPI routes currently do not use an `/api` prefix.
+Canonical routes use no prefix. Backend compatibility aliases are also exposed
+under `/api` for portfolio, strategy, and trade clients.
+
+Supported compatibility paths include:
+
+- `/api/portfolio`
+- `/api/strategy/screen`
+- `/api/strategy/config`
+- `/api/trade`
+- `/api/trade/orders`
 
 ## Important behavior
 
@@ -61,28 +70,84 @@ source .venv/Scripts/activate
 python -m pytest backend/tests agent/tests -q
 ```
 
-Tests must not contact Alpaca or depend on real credentials. Current verification baseline after the latest changes: `104 passed, 1 skipped` with one Starlette/httpx deprecation warning.
+Tests must not contact Alpaca or depend on real credentials. Current verification baseline after the latest changes: `109 passed, 1 skipped` with one Starlette/httpx deprecation warning.
 
 ## Frontend integration notes
 
 - Shared frontend API calls are in `frontend/lib/api.ts` and use `NEXT_PUBLIC_API_BASE_URL`.
-- `StrategyConfigCard.tsx` currently calls `/api/strategy/config` directly; this does not match the backend's `/strategy/config` route and should be unified later.
+- `StrategyConfigCard.tsx` currently calls `/api/strategy/config` directly; the backend now supports this compatibility alias, although the shared API client remains preferable for consistency.
 - `/portfolio` returns account and positions, while `/trade/orders` returns orders. The frontend portfolio type currently declares orders inside the portfolio snapshot, so this contract should be aligned later.
 - `AgentControl.tsx` currently has a Run Agent button without a dedicated backend execution endpoint.
 
-## Current changes
+## Changes completed
 
-- Strategy routes now initialize configuration with `StrategyConfig.from_env()` so environment overrides work at backend startup.
-- A regression test verifies startup configuration overrides through `GET /strategy/config`.
-- Endpoint relationship documentation is in `specials/BACKEND_FRONTEND_API.md`.
+### Strategy configuration startup
 
-## Future work order
+- Changed strategy route initialization from `StrategyConfig()` to
+  `StrategyConfig.from_env()`.
+- Backend now reads `STRATEGY_CONFIG_JSON` at startup.
+- Added a regression test proving environment overrides appear through
+  `GET /strategy/config`.
 
-1. Unify frontend strategy-config URL handling.
-2. Add a typed frontend orders method and connect order history.
-3. Decide and implement an explicit agent-run endpoint.
-4. Add structured error responses, request IDs, and restricted deployment CORS.
-5. Add PostgreSQL only when persistent audit history, reports, recommendations, or configuration is required.
+### Frontend/API compatibility
+
+- Added backend-only `/api` aliases without changing frontend files.
+- Registered portfolio, strategy, and trade routers both at canonical paths and
+  under the `/api` prefix.
+- `/api/strategy/config` returns the same contract as `/strategy/config`.
+- `/api/trade` still validates bad payloads before any broker call.
+- Added route tests for `/api/portfolio`, `/api/trade`, and
+  `/api/trade/orders`.
+
+### Documentation
+
+- Added `specials/BACKEND_FRONTEND_API.md` with endpoint contracts, frontend
+  consumers, data flow, mock/live behavior, known gaps, and verification steps.
+- Added this `backend/MEMORY.md` as the backend-specific project memory.
+
+### Verification and delivery
+
+- Created and ran focused `hermes-verify-` scripts for the changed API behavior.
+- Verified API status codes and canonical/alias strategy-config parity.
+- Ran the complete backend and agent test suite successfully.
+- Latest commit for API aliases: `8b93d40 fix(backend): expose api compatibility routes`.
+- No frontend files were modified by the alias change.
+
+## Not finished / remaining work
+
+### Backend/API integration
+
+1. Add a typed frontend orders method and connect order history to
+   `/trade/orders` when frontend work is allowed.
+2. Decide and implement an explicit backend agent-run endpoint. The current
+   `AgentControl` button has no execution endpoint behind it.
+3. Add response models and consistent structured error responses.
+4. Add request correlation IDs and structured logging.
+5. Add safe retry/backoff policy for transient Alpaca failures.
+6. Review order idempotency and duplicate-submission protection.
+7. Restrict CORS for deployment instead of allowing every origin.
+8. Add a readiness check separate from the basic `/health` endpoint if needed.
+
+### Persistence
+
+9. PostgreSQL is not implemented and is not required for the current stateless
+   MVP. Add it only when persistent strategy configuration, recommendations,
+   screening history, council reports, risk events, or audit logs are required.
+10. If persistence is added, keep Alpaca as the source of truth for live account,
+    positions, and broker orders; PostgreSQL should store application history and
+    audit data.
+
+### Live verification
+
+11. Live Alpaca API verification has not been performed in this work because no
+    credentials were required. It must use a paper account and local environment
+    variables only.
+
+### Known non-blocking warning
+
+12. The test suite still reports a Starlette/httpx deprecation warning. It does
+    not currently fail tests, but dependency compatibility should be reviewed
+    later.
 
 ## Change discipline
 
