@@ -283,26 +283,25 @@ async def _screen(req: ScreenRequest) -> dict:
     try:
         positions = [p for p in client.get_positions() if p.get("asset_class") == "us_equity"]
     except RuntimeError as exc:
-        cands = mock_screen_candidates()
-        response = {"mode": "error", "detail": str(exc), "strategy": "covered_call",
-                    "count": len(cands), "candidates": cands}
-        if req.full:
-            mock_pos = [p for p in mock_positions() if p.get("asset_class") == "us_equity"]
-            enriched, portfolio_context = _enrich_with_engine(cands, mock_pos)
-            response["candidates"] = enriched
-            if portfolio_context is not None:
-                response["portfolio_context"] = portfolio_context
-        return response
+        return {
+            "mode": "live",
+            "live_error": str(exc),
+            "strategy": "covered_call",
+            "count": 0,
+            "candidates": [],
+        }
 
     wanted = set(req.symbols or [])
     candidates: List[dict] = []
+    live_errors: List[str] = []
     for p in positions:
         sym = p.get("symbol", "")
         if wanted and sym not in wanted:
             continue
         try:
             snaps = client.get_option_snapshots(sym)
-        except RuntimeError:
+        except RuntimeError as exc:
+            live_errors.append(f"{sym}: {exc}")
             continue
         for snap in snaps:
             cand = _candidate_from_snapshot(sym, float(p.get("qty", 0) or 0), snap)
@@ -314,6 +313,8 @@ async def _screen(req: ScreenRequest) -> dict:
     candidates = candidates[: req.top_n]
 
     response = {"mode": "live", "strategy": "covered_call", "count": len(candidates), "candidates": candidates}
+    if live_errors:
+        response["live_error"] = "; ".join(live_errors)
     if req.full:
         enriched, portfolio_context = _enrich_with_engine(candidates, positions)
         response["candidates"] = enriched

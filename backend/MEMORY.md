@@ -105,13 +105,22 @@ source .venv/Scripts/activate
 python -m pytest backend/tests agent/tests -q
 ```
 
-Latest result after council integration, OCC validation, and agent-run endpoint:
+Latest result after Alpaca hardening, overlay wiring, order intents, live-error surfacing, and CORS config:
 
 ```text
-212 passed, 1 skipped, 1 warning
+233 passed, 1 skipped, 1 warning
 ```
 
 The warning is a non-blocking Starlette/httpx deprecation warning. Python compilation also passed with `python -m compileall -q backend agent`.
+
+### Backend hardening and contracts
+14. Added `AlpacaAPIError` and normalized Alpaca timeout, network, HTTP, invalid JSON, and response-shape failures into safe backend errors.
+15. Added reusable response envelopes in `backend/app/responses.py` for portfolio, screening, council, and agent-run responses.
+16. Added configurable CORS via `CORS_ORIGINS`; defaults to localhost origins instead of `*`.
+17. Added approval-gated `order_intents` to `POST /api/agent/run` from `INITIATE` directives. `orders_ready` remains `false`; this endpoint still never submits broker orders.
+18. Live `POST /api/council/cycle` now passes normalized short option positions into `run_daily_cycle()`, so `EXIT`/`ROLL` directives can use real Alpaca overlay state instead of only mock data.
+19. Live `GET /api/strategy/screen` now returns `mode: "live"` with optional `live_error` instead of silently falling back to mock data when credentials exist but Alpaca data fails.
+20. Added regression coverage for Alpaca client failures, option-position normalization, council-cycle overlay wiring, order-intent generation, and live strategy error surfacing.
 
 ## Not finished / remaining work
 
@@ -160,3 +169,5 @@ The warning is a non-blocking Starlette/httpx deprecation warning. Python compil
 - `75f3352 Merge branch 'master' into master`
 - `34aecde docs(backend): record implementation status`
 - `8b93d40 fix(backend): expose api compatibility routes`
+- `20dbf70 fix(backend): harden Alpaca API failure handling`
+- `<next-commit-hash> feat(backend): wire live option overlays, order intents, live error surfacing, and configurable CORS`

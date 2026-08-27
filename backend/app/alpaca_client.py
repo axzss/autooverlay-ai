@@ -179,6 +179,48 @@ class AlpacaClient:
         return snapshots
 
 
+def normalize_option_position(position: dict) -> dict | None:
+    """Normalize an Alpaca option position for ExitManager consumption.
+
+    Invalid or incomplete broker records are ignored instead of entering the
+    risk pipeline with guessed values.
+    """
+    if not isinstance(position, dict) or position.get("asset_class") != "us_option":
+        return None
+    option_symbol = str(position.get("symbol") or "").upper().strip()
+    try:
+        parsed = parse_occ_symbol(option_symbol)
+        qty = float(position.get("qty"))
+        initial = float(position.get("avg_entry_price"))
+        current = float(position.get("current_price"))
+    except (TypeError, ValueError):
+        return None
+    if qty == 0 or initial < 0 or current < 0:
+        return None
+    contracts = int(abs(qty))
+    if contracts < 1:
+        return None
+    try:
+        market_value = float(position.get("market_value"))
+    except (TypeError, ValueError):
+        market_value = 0.0
+    return {
+        "symbol": parsed["underlying"],
+        "option_symbol": option_symbol,
+        "strategy": "SHORT_CALL" if parsed["type"] == "call" else "SHORT_PUT",
+        "contracts": contracts,
+        "qty": qty,
+        "side": "short" if qty < 0 else "long",
+        "expiration_date": parsed["expiration"],
+        "strike_price": parsed["strike"],
+        "option_type": parsed["type"],
+        "initial_premium": initial,
+        "current_premium": current,
+        "premium_received": round(initial * 100 * contracts, 2),
+        "market_value": market_value,
+    }
+
+
 def parse_occ_symbol(symbol: str) -> dict:
     """Parse an OCC option symbol like AAPL240621C00175000 into components."""
     import re

@@ -12,10 +12,10 @@ from __future__ import annotations
 import math
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError, constr
 
-from ..alpaca_client import AlpacaClient, is_configured
+from ..alpaca_client import AlpacaClient, is_configured, normalize_option_position
 from ..mock_data import mock_account, mock_council_snapshots, mock_positions
 
 router = APIRouter()
@@ -25,6 +25,7 @@ COUNCIL_UNIVERSE = ("AAPL", "MSFT", "NVDA", "TSLA", "SPY", "QQQ", "JPM", "KO")
 
 from agent.council.engine import CouncilEngine  # noqa: E402
 from agent.council.handoff import effective_policy_for_symbol  # noqa: E402
+from agent.council.daily_cycle import run_daily_cycle  # noqa: E402
 
 
 class CouncilAssessRequest(BaseModel):
@@ -183,23 +184,29 @@ class CouncilCycleRequest(BaseModel):
 async def council_cycle(req: CouncilCycleRequest) -> dict:
     import math
 
-    from agent.council.daily_cycle import run_daily_cycle
-
     # Live portfolio from Alpaca when configured, else bundled mock fallback.
     positions: List[dict] = []
+    open_option_positions: List[dict] = []
     cash: float = 0.0
     account: dict = {}
     mode = "live"
     if is_configured():
         try:
             client = AlpacaClient()
-            positions = [
-                p for p in client.get_positions()
-                if isinstance(p, dict) and str(p.get("symbol", "")).upper() != "SPY"
+            raw_positions = client.get_positions()
+            positions = [p for p in raw_positions if (
+                isinstance(p, dict)
+                and p.get("asset_class") != "us_option"
+                and str(p.get("symbol", "")).upper() != "SPY"
+            )]
+            open_option_positions = [
+                normalized for normalized in (
+                    normalize_option_position(p) for p in raw_positions
+                ) if normalized is not None and normalized["qty"] < 0
             ]
             account = client.get_account() or {}
-        except Exception:
-            positions, account = [], {}
+        except (RuntimeError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     if not positions and not account:
         mode = "mock"
         account = mock_account()
@@ -222,7 +229,7 @@ async def council_cycle(req: CouncilCycleRequest) -> dict:
 
     return run_daily_cycle(
         positions, cash,
-        open_option_positions=None,  # TODO: wire open option overlays from Alpaca
+        open_option_positions=open_option_positions,
         candidates=req.candidates,
         candidate_snapshots={s["symbol"]: s for s in mock_council_snapshots()}
         if mode == "mock" else None,
