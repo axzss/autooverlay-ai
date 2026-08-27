@@ -134,6 +134,11 @@ configured, otherwise mock portfolio data. The cycle applies council policy,
 portfolio risk controls, and candidate decisions. It does not submit a broker
 order automatically merely because a recommendation exists.
 
+In live mode, open short option positions from Alpaca are normalized from OCC
+symbols and passed to `ExitManager`, so the cycle can produce `EXIT` or `ROLL`
+directives. Invalid option records are ignored safely. If live portfolio fetch
+fails, the endpoint returns HTTP 502 instead of silently switching to mock data.
+
 ### POST `/api/agent/run`
 
 Runs the existing council daily cycle as a recommendation-only agent workflow.
@@ -153,6 +158,10 @@ The response includes:
 
 This endpoint never calls order submission. A later, separately approved flow
 must call `/api/trade` after the user reviews the recommendation.
+
+`order_intents` contains approval-gated `SELL_TO_OPEN` payloads derived from
+`INITIATE` directives. Each intent includes `requires_approval: true` and
+`submitted: false`.
 
 ### POST `/api/trade`
 
@@ -222,20 +231,23 @@ is the order-history source; portfolio data does not embed broker orders.
 
 ## 5. Mock and live behavior
 
-| Condition | Behavior |
+|| Condition | Behavior ||
 |---|---|
-| Alpaca credentials absent | Safe mock account, screening, council, and order behavior |
-| Alpaca credentials present | Calls configured Alpaca paper/data APIs |
-| Invalid request | HTTP 422; no broker call |
-| Trade in mock mode | Validated only; `submitted: false` |
-| Option snapshot fails for one symbol | That symbol is skipped from screening |
-| Non-finite input | Rejected/sanitized into a safe validation response |
+|| Alpaca credentials absent | Safe mock account, screening, council, and order behavior ||
+|| Alpaca credentials present | Calls configured Alpaca paper/data APIs ||
+|| Invalid request | HTTP 422; no broker call ||
+|| Trade in mock mode | Validated only; `submitted: false` ||
+|| Option snapshot fails for one symbol | That symbol is skipped from screening ||
+|| Non-finite input | Rejected/sanitized into a safe validation response ||
+|| Strategy screen live failure | Returns `mode: "live"` plus `live_error` instead of mock fallback ||
+|| Council cycle live failure | Returns HTTP 502 instead of silently using mock portfolio ||
+|| Agent run | Returns `order_intents` for `INITIATE` directives, but never submits orders ||
 
 Credentials must never be committed or placed in documentation.
 
 ## 6. Current gaps
 
-1. Response models and error envelopes are not fully standardized.
+1. Response model coverage is partial but expanding.
 2. Alpaca retry/backoff and structured request logging are not complete.
 3. Duplicate order/idempotency protection needs review.
 4. CORS currently allows all origins for local development.

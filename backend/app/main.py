@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,15 +18,23 @@ from .routes.trade import router as trade_router
 
 app = FastAPI(title="AutoOverlay AI Backend", version="0.1.0")
 
+
+def _cors_origins() -> list[str]:
+    raw = (os.getenv("CORS_ORIGINS") or "").strip()
+    if not raw:
+        return ["http://localhost:3000", "http://127.0.0.1:3000"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# All application routes use the /api prefix as the single public API contract.
+
 app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
 app.include_router(trade_router, prefix="/api", tags=["trading"])
 app.include_router(strategy_router, prefix="/api", tags=["strategy"])
