@@ -39,15 +39,51 @@ class CashSecuredPutStrategy:
         good_annualized_yield: float = 0.25,
         max_risk_for_entry: int = 60,
         config: "StrategyConfig | None" = None,
+        tier_policy: "dict | object | None" = None,
     ):
+        """
+        ``tier_policy``: optional council volatility-tier policy (a
+        ``agent.council.handoff.TierPolicy`` or an equivalent dict). When
+        given, its delta band / DTE ceiling / size multiplier take effect
+        unless explicitly overridden by the matching keyword args; explicit
+        args and StrategyConfig defaults still win otherwise.
+        """
         cfg = config or StrategyConfig()
-        self.min_dte = min_dte if min_dte is not None else cfg.dte_min
-        self.max_dte = max_dte if max_dte is not None else cfg.dte_max
-        self.min_delta = min_delta if min_delta is not None else cfg.delta_min
-        self.max_delta = max_delta if max_delta is not None else cfg.delta_max
+        pol = self._normalize_policy(tier_policy)
+        self.tier_policy = pol
+        # Precedence: explicit arg > tier policy > StrategyConfig defaults.
+        self.min_dte = min_dte if min_dte is not None else (
+            pol["dte_min"] if pol and pol.get("dte_min") else cfg.dte_min)
+        self.max_dte = max_dte if max_dte is not None else (
+            pol["max_dte"] if pol else cfg.dte_max)
+        self.min_delta = min_delta if min_delta is not None else (
+            pol["delta_min"] if pol else cfg.delta_min)
+        self.max_delta = max_delta if max_delta is not None else (
+            pol["delta_max"] if pol else cfg.delta_max)
+        self.size_multiplier = float(pol.get("size_multiplier", 1.0)) if pol else 1.0
         self.min_annualized_yield = min_annualized_yield
         self.good_annualized_yield = good_annualized_yield
         self.max_risk_for_entry = max_risk_for_entry
+
+    @staticmethod
+    def _normalize_policy(tier_policy) -> "dict | None":
+        """Accept a TierPolicy dataclass or a plain dict; return dict or None."""
+        if tier_policy is None:
+            return None
+        if hasattr(tier_policy, "to_dict"):
+            tier_policy = tier_policy.to_dict()
+        try:
+            allowed = tuple(s.upper() for s in
+                            tier_policy.get("allowed_strategies", ()))
+        except AttributeError:
+            allowed = ()
+        return {
+            "delta_min": float(tier_policy.get("delta_min", 0.15)),
+            "delta_max": float(tier_policy.get("delta_max", 0.35)),
+            "max_dte": int(tier_policy.get("max_dte", 45)),
+            "size_multiplier": float(tier_policy.get("size_multiplier", 1.0)),
+            "allowed_strategies": allowed,
+        }
 
     # ------------------------------------------------------------------ #
     # Public API                                                          #
@@ -74,7 +110,7 @@ class CashSecuredPutStrategy:
                 continue
 
             delta = abs(float(opp.get("delta") or 0))
-            if not (self.min_delta <= delta <= self.MAX_DELTA):
+            if not (self.min_delta <= delta <= self.max_delta):
                 continue
 
             underlying = float(opp.get("underlying_price") or 0)
@@ -87,8 +123,38 @@ class CashSecuredPutStrategy:
             contracts_affordable = int(account_cash // cash_required) if cash_required > 0 else 0
             if contracts_affordable < 1:
                 continue
+            # Council tier size multiplier (half-size on restricted tiers).
+            contracts = max(1, int(contracts_affordable * self.size_multiplier))
 
             symbol = opp.get("symbol")
+
+            # Council tier gate: high-vol tier blocks new short-put exposure.
+            if (self.tier_policy
+                    and "CSP" not in self.tier_policy["allowed_strategies"]):
+                results.append({
+                    "strategy": "CASH_SECURED_PUT",
+                    "symbol": symbol,
+                    "option_symbol": opp.get("option_symbol"),
+                    "strike_price": strike,
+                    "expiration_date": opp.get("expiration_date"),
+                    "dte": dte,
+                    "delta": round(delta, 3),
+                    "recommendation": "BLOCKED_BY_COUNCIL_TIER",
+                    "rationale": (
+                        f"{symbol}: CSP blocked — council handoff restricts "
+                        f"this volatility tier to "
+                        f"{','.join(self.tier_policy['allowed_strategies'])} "
+                        f"only (no new short-put exposure pending re-score)."),
+                    "reasoning_trace": [
+                        f"council tier gate: allowed strategies = "
+                        f"{','.join(self.tier_policy['allowed_strategies'])}; "
+                        f"CSP not permitted → ✗ BLOCKED",
+                        f"council rule cited: Investment Council Report §6/§8 "
+                        f"— 'Do not add short-put exposure' on this vol tier",
+                    ],
+                })
+                continue
+
             cost_basis = basis_by_symbol.get(symbol, 0.0)
             strike_below_basis = strike < cost_basis if cost_basis > 0 else None
             otm = strike < underlying if underlying > 0 else None
@@ -104,11 +170,15 @@ class CashSecuredPutStrategy:
             reasoning_trace = [
                 f"DTE {dte} within {self.min_dte}-{self.max_dte} band ✓",
                 f"|delta| {delta:.2f} within {self.min_delta:.2f}-"
-                f"{self.MAX_DELTA:.2f} band ✓",
+                f"{self.max_delta:.2f} band ✓",
                 f"cash check: ${cash_required:,.0f} collateral per contract, "
                 f"{contracts_affordable} contract(s) affordable on "
                 f"${account_cash:,.0f} cash "
                 f"{'✓' if contracts_affordable >= 1 else '✗'}",
+                *( [f"council tier sizing: size multiplier x{self.size_multiplier} "
+                    f"applied → {contracts} contract(s) "
+                    f"(council handoff restricted-size tier)"]
+                   if self.size_multiplier < 1 else [] ),
                 f"premium ${premium:.2f}/share → annualized cash-secured yield "
                 f"{ann_yield*100:.1f}% (floor {self.min_annualized_yield*100:.0f}%) "
                 f"{'✓' if ann_yield >= self.min_annualized_yield else '✗'}",
@@ -127,7 +197,7 @@ class CashSecuredPutStrategy:
                 symbol=symbol, strike=strike, dte=dte, delta=delta,
                 premium=premium, ann_yield=ann_yield, risk_score=risk_score,
                 strike_below_basis=strike_below_basis, otm=otm,
-                contracts=contracts_affordable, recommendation=recommendation,
+                contracts=contracts, recommendation=recommendation,
                 iv=float(opp.get("implied_volatility") or 0),
             )
 
@@ -135,7 +205,8 @@ class CashSecuredPutStrategy:
                 "strategy": "CASH_SECURED_PUT",
                 "symbol": symbol,
                 "option_symbol": opp.get("option_symbol"),
-                "contracts": contracts_affordable,
+                "contracts": contracts,
+                "tier_size_multiplier": self.size_multiplier,
                 "cash_required": round(cash_required, 2),
                 "strike_price": strike,
                 "expiration_date": opp.get("expiration_date"),
@@ -151,7 +222,7 @@ class CashSecuredPutStrategy:
                 "reasoning_trace": reasoning_trace,
             })
 
-        return sorted(results, key=lambda r: r["annualized_premium_yield"], reverse=True)
+        return sorted(results, key=lambda r: r.get("annualized_premium_yield", 0), reverse=True)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                             #

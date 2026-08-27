@@ -14,3 +14,7 @@ coverage/
 .vscode/
 .idea/
 *.tsbuildinfo
+
+# Copyrighted book text — local analysis only, never commit
+docs/intelligent_investor.txt
+docs/intelligent_investor.pdf

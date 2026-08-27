@@ -65,6 +65,8 @@ class PortfolioAnalyst:
         min_cash_reserve_pct: Optional[float] = None,
         sector_map: Optional[Dict[str, str]] = None,
         config: Optional[StrategyConfig] = None,
+        max_sector_concentration: Optional[float] = None,
+        sector_cap_group=None,
     ):
         cfg = config or StrategyConfig()
         self.max_concentration = (
@@ -74,6 +76,15 @@ class PortfolioAnalyst:
             min_cash_reserve_pct if min_cash_reserve_pct is not None
             else cfg.min_cash_reserve_pct / 100.0)
         self.sector_map = dict(sector_map or SECTOR_MAP)
+        # Council §6 correlation rule: tech-complex (AAPL/MSFT/NVDA/QQQ)
+        # combined exposure ≤ max_sector_concentration_pct of deployed
+        # overlay capital. Counted as tech, not as a diversifier.
+        self.max_sector_concentration = (
+            max_sector_concentration if max_sector_concentration is not None
+            else cfg.max_sector_concentration_pct / 100.0)
+        self.sector_cap_group = tuple(
+            s.upper() for s in (sector_cap_group or cfg.sector_cap_group
+                                or ("AAPL", "MSFT", "NVDA", "QQQ")))
 
     # ------------------------------------------------------------------ #
     # Core checks                                                         #
@@ -109,7 +120,9 @@ class PortfolioAnalyst:
     def check_new_position(self, symbol: str, collateral_required: float,
                            existing_overlay_value_for_symbol: float,
                            portfolio_value: float, account_cash: float,
-                           contracts: int = 1) -> Tuple[bool, List[str]]:
+                           contracts: int = 1,
+                           existing_positions: Optional[List[Dict]] = None,
+                           ) -> Tuple[bool, List[str]]:
         """
         Gate a proposed new overlay position.
 
@@ -117,6 +130,10 @@ class PortfolioAnalyst:
           1. concentration: (existing + new) / portfolio <= 25%
           2. cash reserve: account_cash - collateral >= 10% of portfolio
              value (and >= 0).
+          3. council sector cap: correlated-group (tech complex:
+             AAPL/MSFT/NVDA/QQQ) combined exposure <=
+             max_sector_concentration of deployed overlay capital — when
+             ``existing_positions`` is supplied.
         """
         trace: List[str] = []
         allowed = True
@@ -143,7 +160,66 @@ class PortfolioAnalyst:
         if not reserve_ok:
             allowed = False
 
+        # Council §6 correlation rule: tech-complex sector cap.
+        if existing_positions is not None:
+            sector_ok, sector_lines = self.check_sector_cap(
+                sym, collateral_required, existing_positions)
+            trace.extend(sector_lines)
+            if not sector_ok:
+                allowed = False
+
         return allowed, trace
+
+    def _position_value(self, p: Dict) -> float:
+        mv = p.get("market_value")
+        if mv is None:
+            price = p.get("current_price") or p.get("avg_entry_price") or 0
+            mv = float(p.get("qty") or 0) * float(price)
+        # Short-option overlays may report explicit collateral instead.
+        return float(p.get("collateral", mv))
+
+    def deployed_overlay_capital(self, positions: List[Dict]) -> float:
+        """Total deployed overlay capital across all positions."""
+        return sum(self._position_value(p) for p in positions)
+
+    def check_sector_cap(self, symbol: str, collateral_required: float,
+                         positions: List[Dict],
+                         deployed_capital: Optional[float] = None
+                         ) -> Tuple[bool, List[str]]:
+        """
+        Council correlation rule (report §6): combined exposure of the
+        correlated group (default tech complex AAPL+MSFT+NVDA+QQQ — QQQ
+        counts as tech, not as a diversifier) must stay ≤
+        max_sector_concentration (40%) of deployed overlay capital.
+
+        Returns (allowed, reasoning_trace). A breaching new entry is BLOCKED.
+        """
+        sym = str(symbol).upper()
+        group = set(self.sector_cap_group)
+        deployed_now = (self.deployed_overlay_capital(positions)
+                        if deployed_capital is None else float(deployed_capital))
+        group_now = sum(self._position_value(p) for p in positions
+                        if str(p.get("symbol", "?")).upper() in group)
+        in_group = sym in group
+        group_projected = group_now + (collateral_required if in_group else 0.0)
+        deployed_projected = deployed_now + float(collateral_required)
+        frac = (group_projected / deployed_projected
+                if deployed_projected > 0 else 0.0)
+        ok = frac <= self.max_sector_concentration + 1e-9
+        trace = [
+            f"council sector-cap check ({'+'.join(sorted(group))} vs "
+            f"{self.max_sector_concentration*100:.0f}% of deployed overlay "
+            f"capital): ${group_projected:,.0f} / ${deployed_projected:,.0f} "
+            f"= {frac*100:.1f}% "
+            f"{'✓' if ok else '✗ BLOCKED'}",
+        ]
+        if not ok:
+            trace.append(
+                "council rule cited: Investment Council Report §6 — "
+                "'combined tech-complex exposure (AAPL+MSFT+NVDA+QQQ) limited "
+                "to ≤40% of deployed overlay capital'; QQQ counts as tech, "
+                "not as a diversifier → new entry BLOCKED")
+        return ok, trace
 
     def sector_exposure(self, positions: List[Dict]) -> Dict[str, Dict]:
         """Aggregate overlay/holding value per sector via the static map."""

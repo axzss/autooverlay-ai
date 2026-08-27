@@ -13,6 +13,7 @@ gracefully.
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, asdict, fields
 
@@ -34,6 +35,10 @@ class StrategyConfig:
     # Portfolio guards
     max_concentration_pct: float = 25.0  # max % of portfolio per ticker
     min_cash_reserve_pct: float = 10.0   # min % cash remaining after collateral
+    # Council §6 correlation rule: tech complex (AAPL/MSFT/NVDA/QQQ) combined
+    # exposure cap as % of deployed overlay capital.
+    max_sector_concentration_pct: float = 40.0
+    sector_cap_group: tuple = ("AAPL", "MSFT", "NVDA", "QQQ")
 
     # Kill-switch thresholds (agent halt conditions)
     kill_max_drawdown_pct: float = 5.0           # peak-to-current drawdown that halts
@@ -52,6 +57,11 @@ class StrategyConfig:
             if not isinstance(val, (int, float)) or isinstance(val, bool):
                 errors.append(f"{name} must be numeric")
                 return
+            # Security: reject NaN / +/-Infinity — comparisons with NaN are all
+            # False, so an unfixed _check would silently accept poisoned values.
+            if not math.isfinite(val):
+                errors.append(f"{name} must be finite")
+                return
             if positive and val <= 0:
                 errors.append(f"{name} must be > 0")
             if low is not None and val <= low:
@@ -60,13 +70,14 @@ class StrategyConfig:
                 errors.append(f"{name} must be < {high}")
 
         _check("take_profit_pct", low=0.0, high=1.0)
-        _check("stop_loss_mult", positive=True)
+        _check("stop_loss_mult", low=0.0, high=1000.0)
         _check("roll_delta", low=0.0, high=1.0)
         _check("delta_min", low=0.0, high=1.0)
         _check("delta_max", low=0.0, high=1.0)
         _check("dte_min", positive=True)
         _check("dte_max", positive=True)
         _check("max_concentration_pct", low=0.0, high=100.0)
+        _check("max_sector_concentration_pct", low=0.0, high=100.0)
         _check("min_cash_reserve_pct", low=0.0, high=100.0)
 
         if self.delta_min >= self.delta_max:
@@ -89,13 +100,25 @@ class StrategyConfig:
         for key, value in (data or {}).items():
             if key not in known:
                 continue
+            if key == "sector_cap_group":
+                try:
+                    clean[key] = tuple(str(s).upper() for s in value)
+                except (TypeError, ValueError):
+                    continue
+                continue
             try:
                 if key in ("roll_min_dte", "dte_min", "dte_max"):
                     clean[key] = int(value)
                 else:
                     if isinstance(value, bool):
                         continue
-                    clean[key] = float(value)
+                    num = float(value)
+                    # Security: reject non-finite values (NaN/Infinity) coming
+                    # from env JSON or API payloads — validate() comparisons
+                    # cannot catch them.
+                    if not math.isfinite(num):
+                        continue
+                    clean[key] = num
             except (TypeError, ValueError):
                 continue  # ignore bad types gracefully
         return cls(**clean)

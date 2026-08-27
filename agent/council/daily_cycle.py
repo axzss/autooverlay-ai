@@ -1,0 +1,422 @@
+"""Daily Cycle — autonomous daily orchestration of the overlay council.
+
+run_daily_cycle(portfolio_positions, cash, open_option_positions=None,
+                **kwargs) runs, in order:
+
+  0. Kill-switch check FIRST (risk_mitigation.evaluate_kill_switch) —
+     if halted, return immediately with halt reasons and skip everything else.
+  a. Snapshot + fundamentals merge: injected snapshot dicts win; missing
+     symbols may fall back to the sibling fundamentals provider
+     (agent.council.fundamentals) when ``allow_provider=True``.
+  b. Mr. Market mood from the index proxy (SPY vol / drawdown) via
+     mr_market.classify_market_mood.
+  c. CouncilEngine assessments for held underlyings + candidates.
+  d. Exit evaluation on open overlays (ExitManager).
+  e. New-entry screening with tier policies (handoff) + concentration and
+     council §6 sector caps (PortfolioAnalyst). Blocked entries are returned
+     as MONITOR directives carrying their cited blocking traces.
+
+Output: {"halted", "kill_switch", "mr_market", "assessments", "directives",
+         ...} where every directive is
+    {action, symbol, params, priority, reasoning_trace, provenance}
+and provenance cites which council rule / persona / test drove it
+(e.g. 'council §6', 'graham test 4', 'tier:mid', 'exit:take_profit').
+
+Deterministic over its inputs; no network unless explicitly allowed.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+try:
+    from .risk_mitigation import evaluate_kill_switch
+    from .engine import CouncilEngine
+    from .mr_market import classify_market_mood
+    from .handoff import effective_policy_for_symbol
+except ImportError:  # pragma: no cover - direct-script imports
+    from council.risk_mitigation import evaluate_kill_switch
+    from council.engine import CouncilEngine
+    from council.mr_market import classify_market_mood
+    from council.handoff import effective_policy_for_symbol
+
+try:
+    from ..config import StrategyConfig
+    from ..exit_manager import ExitManager
+    from ..portfolio_analyst import PortfolioAnalyst
+except ImportError:  # pragma: no cover - direct-script imports
+    from exit_manager import ExitManager
+    from portfolio_analyst import PortfolioAnalyst
+    try:
+        from config import StrategyConfig
+    except ImportError:  # last resort
+        StrategyConfig = None  # type: ignore[assignment,misc]
+
+# Priority ladder (1 = act first).
+PRIORITY_EXIT = 1        # TAKE_PROFIT / STOP_LOSS closes
+PRIORITY_ROLL = 2        # rolls reset risk before new risk is added
+PRIORITY_INITIATE = 3    # screened new entries
+PRIORITY_MONITOR_BLOCKED = 4   # entries that wanted to initiate but were blocked
+PRIORITY_HOLD = 5        # passive holds / watches
+
+
+def _position_value(p: dict) -> float:
+    mv = p.get("market_value")
+    if mv is None:
+        price = p.get("current_price") or p.get("avg_entry_price") or 0
+        mv = float(p.get("qty") or 0) * float(price)
+    return float(p.get("collateral", mv))
+
+
+def _build_portfolio_state(positions: List[dict], cash: float,
+                           overrides: Optional[dict]) -> dict:
+    """Derive kill-switch inputs; explicit overrides always win."""
+    equity = sum(_position_value(p) for p in positions) + float(cash or 0)
+    state = {
+        "equity": equity,
+        "peak_equity": overrides.get("peak_equity") if overrides else None,
+        "prev_equity": overrides.get("prev_equity") if overrides else None,
+        "consecutive_stop_losses":
+            (overrides or {}).get("consecutive_stop_losses"),
+    }
+    state["peak_equity"] = state["peak_equity"] or equity
+    return {k: v for k, v in state.items() if v is not None}
+
+
+def _load_snapshots(symbols: List[str],
+                    injected: Optional[Dict[str, dict]],
+                    allow_provider: bool) -> tuple[Dict[str, dict], List[str]]:
+    """Merge injected snapshots first; optionally top up via the sibling
+    fundamentals provider (never raises — failures degrade to missing)."""
+    snaps: Dict[str, dict] = {}
+    for sym in symbols:
+        s = (injected or {}).get(sym)
+        if isinstance(s, dict):
+            u = dict(s)
+            u.setdefault("symbol", sym)
+            snaps[sym] = u
+    missing = [s for s in symbols if s not in snaps]
+    if missing and allow_provider:
+        try:  # sibling's provider, if present on disk
+            from .fundamentals import build_snapshot_with_fundamentals
+            for sym in list(missing):
+                base = dict(snaps.get(sym) or {"symbol": sym})
+                snaps[sym] = build_snapshot_with_fundamentals(
+                    sym, dict(base))
+                missing.remove(sym)
+        except Exception:  # graceful degradation — never block the cycle
+            pass
+    return snaps, missing
+
+
+def _provenance(source: str, detail: str | None = None) -> dict:
+    p = {"source": source}
+    if detail:
+        p["detail"] = detail
+    return p
+
+
+def _persona_provenance(assessment) -> List[dict]:
+    provs = []
+    for key, v in assessment.verdicts.items():
+        provs.append({
+            "source": f"persona:{v.persona}",
+            "detail": f"score {v.score:.0f} → {v.stance}",
+        })
+    return provs
+
+
+def _directive(action: str, symbol: str, params: dict, priority: int,
+               trace: List[str], provenance: List[dict]) -> dict:
+    return {
+        "action": action,
+        "symbol": symbol,
+        "params": params,
+        "priority": priority,
+        "reasoning_trace": list(trace),
+        "provenance": provenance,
+    }
+
+
+def run_daily_cycle(
+    portfolio_positions: List[dict],
+    cash: float,
+    open_option_positions: Optional[List[dict]] = None,
+    *,
+    candidate_snapshots: Optional[Dict[str, dict]] = None,
+    candidates: Optional[List[str]] = None,
+    portfolio_state_overrides: Optional[dict] = None,
+    config=None,
+    allow_provider: bool = False,
+) -> dict:
+    """Run one full daily council cycle. See module docstring for ordering."""
+    config = config or StrategyConfig()
+    positions = [dict(p) for p in (portfolio_positions or [])]
+    open_options = [dict(o) for o in (open_option_positions or [])]
+    held = [str(p.get("symbol", "")).upper() for p in positions
+            if p.get("symbol")]
+    wanted: List[str] = []
+    for sym in held + [c.upper() for c in (candidates or [])]:
+        if sym and sym not in wanted:
+            wanted.append(sym)
+
+    result: Dict[str, Any] = {
+        "halted": False,
+        "steps_run": [],
+        "directives": [],
+        "assessments": [],
+    }
+
+    def step(name: str) -> None:
+        result["steps_run"].append(name)
+
+    # ---- 0. KILL SWITCH FIRST ------------------------------------------- #
+    portfolio_state = _build_portfolio_state(
+        positions, cash, portfolio_state_overrides)
+    kill = evaluate_kill_switch(portfolio_state, config=config)
+    result["kill_switch"] = kill
+    result["portfolio_state"] = {
+        k: round(float(v), 2) if isinstance(v, (int, float)) else v
+        for k, v in portfolio_state.items()}
+    if kill["halted"]:
+        result["halted"] = True
+        result["halt_reasons"] = list(kill["reasons"])
+        result["directives"] = [_directive(
+            "HOLD", "*", {},
+            PRIORITY_HOLD,
+            ["kill-switch HALT: trading suspended — " + "; ".join(kill["reasons"]),
+             "all further cycle steps skipped per risk_mitigation policy"],
+            [_provenance("kill-switch",
+                         "; ".join(kill["reasons"]))])]
+        return result  # short-circuit: nothing else runs
+    step("kill_switch")
+
+    # ---- a. Snapshots + fundamentals ------------------------------------- #
+    snapshots, missing = _load_snapshots(
+        wanted, candidate_snapshots, allow_provider)
+    result["snapshot_symbols_missing"] = missing
+    step("snapshots")
+
+    # ---- b. Mr. Market mood from index proxy ------------------------------ #
+    spy = snapshots.get("SPY") or {}
+    prices = spy.get("recent_prices") or []
+    mood = classify_market_mood(list(prices), spy.get("vol30d_annualized_pct"))
+    result["mr_market"] = {
+        "mood": mood.mood,
+        "runup_pct": round(mood.runup_pct, 2) if mood.runup_pct is not None else None,
+        "realized_vol_pct": round(mood.realized_vol_pct, 2)
+        if mood.realized_vol_pct is not None else None,
+        "favorable_for_buying": mood.is_favorable_for_buying,
+        "warning_against_buying": mood.is_warning_against_buying,
+        "guidance": list(mood.guidance),
+    }
+    step("mr_market")
+
+    # ---- c. Council assessments ------------------------------------------ #
+    engine = CouncilEngine()
+    analyst = PortfolioAnalyst(config=config)
+    portfolio_value = float(portfolio_state["equity"])
+    portfolio_ctx = {
+        "positions": positions,
+        "cash": cash,
+        "portfolio_value": portfolio_value,
+    }
+    assessed: Dict[str, Any] = {}
+    for sym in wanted:
+        snap = snapshots.get(sym)
+        if not snap:
+            continue
+        u = dict(snap)
+        u.setdefault("annualized_volatility_pct",
+                     snap.get("vol30d_annualized_pct"))
+        assessment = engine.assess_underlying(u)
+        assessed[sym] = assessment
+        result["assessments"].append({
+            "symbol": sym,
+            "consensus_score": assessment.consensus_score,
+            "recommendation": assessment.recommendation,
+            "majority_stance": assessment.majority_stance,
+            "is_split": assessment.is_split,
+            "verdicts": {k: {"persona": v.persona, "score": v.score,
+                             "stance": v.stance, "bullets": list(v.bullets)}
+                         for k, v in assessment.verdicts.items()},
+            "dissent": [dict(d) for d in assessment.dissent],
+            "mr_market_context": assessment.mr_market_context,
+        })
+    step("council_assessments")
+
+    directives: List[dict] = []
+
+    # ---- d. Exit evaluation on open overlays ------------------------------ #
+    exit_mgr = ExitManager(config=config)
+    for ex in exit_mgr.evaluate_positions(open_options):
+        action = ex["action"]
+        if action == "TAKE_PROFIT" or action == "STOP_LOSS":
+            directive_action, prio = "EXIT", PRIORITY_EXIT
+        elif action == "ROLL":
+            directive_action, prio = "ROLL", PRIORITY_ROLL
+        else:
+            directive_action, prio = "HOLD", PRIORITY_HOLD
+        provenance = [_provenance(
+            f"exit:{action.lower()}",
+            ex.get("rule_triggered") or "no mechanical exit rule triggered")]
+        trace = list(ex.get("reasoning_trace") or [])
+        trace.append(f"source: ExitManager mechanical rules → {action}")
+        directives.append(_directive(
+            directive_action, ex.get("symbol", "?"),
+            {"strategy": ex.get("strategy"),
+             "contracts": ex.get("contracts"),
+             "option_symbol": ex.get("option_symbol"),
+             "order_side": ex.get("order_side"),
+             "rule_triggered": ex.get("rule_triggered"),
+             "premium_captured_pct": ex.get("premium_captured_pct")},
+            prio, trace, provenance))
+    step("exits")
+
+    # ---- e. New-entry screening + holds/monitors on held names ------------ #
+    blocked_traces_by_symbol: Dict[str, List[str]] = {}
+
+    def screen_entry(sym: str, assessment) -> None:
+        snap = snapshots[sym] or {}
+        vol = snap.get("annualized_volatility_pct") \
+            or snap.get("vol30d_annualized_pct") or 0
+        try:
+            vol_f = float(vol)
+        except (TypeError, ValueError):
+            vol_f = 999.0  # unknown vol treated conservatively as high tier
+        policy, tier_notes = effective_policy_for_symbol(sym, vol_f)
+        provs = [_provenance(
+            f"tier:{policy.name}",
+            "; ".join(tier_notes)),
+            _provenance("council handoff HANDOFF section",
+                        f"{policy.name} tier policy "
+                        f"(delta {policy.delta_min:.2f}-{policy.delta_max:.2f})")]
+        persona_provs = _persona_provenance(assessment)
+        trace: List[str] = [
+            f"council consensus {assessment.consensus_score:.1f} → "
+            f"{assessment.recommendation}",
+            f"Mr. Market mood: {result['mr_market']['mood']} "
+            f"(buying {'favorable' if result['mr_market']['favorable_for_buying'] else 'not favorable'})",
+        ] + tier_notes
+
+        bull_ok = assessment.recommendation in ("STRONG_BUY", "ACCUMULATE")
+        mood_ok = not result["mr_market"]["warning_against_buying"]
+        graham_failed = []
+        for key, v in assessment.verdicts.items():
+            if "graham" in key.lower() and not v.is_bullish:
+                graham_failed.append(key)
+        if not bull_ok or not mood_ok:
+            why = []
+            if not bull_ok:
+                why.append(f"council says {assessment.recommendation}")
+            if not mood_ok:
+                why.append("Mr. Market euphoric — refrain from new buying")
+            trace.append(f"new entry NOT permitted ({'; '.join(why)})")
+            directives.append(_directive(
+                "MONITOR", sym,
+                {"consensus_score": assessment.consensus_score,
+                 "recommendation": assessment.recommendation},
+                PRIORITY_HOLD, trace,
+                provs + persona_provs
+                + [_provenance("mr_market ch.8", result["mr_market"]["mood"])]))
+            return
+
+        # Graham persona citation when bullish (e.g. passed defensive tests).
+        graham_prov: List[dict] = []
+        gv = assessment.verdicts.get("graham")
+        if gv is not None and gv.is_bullish:
+            graham_prov.append(_provenance(
+                "graham tests ch.14",
+                f"graham persona bullish at {gv.score:.0f}: "
+                + " | ".join(gv.bullets[:3])))
+
+        # Concentration + sector cap gating (collateral estimate: 100 shares
+        # × price for covered-call style sizing scaled by tier size multiplier).
+        price = float(snap.get("price") or 0)
+        collateral = round(price * 100 * max(policy.size_multiplier, 0.01), 2)
+        existing_for_sym = sum(_position_value(p) for p in positions
+                               if str(p.get("symbol", "")).upper() == sym)
+        allowed, gate_trace = analyst.check_new_position(
+            sym, collateral, existing_for_sym, portfolio_value, cash,
+            contracts=1, existing_positions=positions)
+        full_trace = trace + gate_trace
+        entry_params = {
+            "strategy_allowed": list(policy.allowed_strategies),
+            "delta_band": [policy.delta_min, policy.delta_max],
+            "max_dte": policy.max_dte,
+            "size_multiplier": policy.size_multiplier,
+            "estimated_collateral": collateral,
+            "consensus_score": assessment.consensus_score,
+        }
+        if allowed:
+            full_trace.append(
+                "all gates passed → INITIATE new overlay per tier policy")
+            directives.append(_directive(
+                "INITIATE", sym, entry_params, PRIORITY_INITIATE, full_trace,
+                provs + persona_provs + graham_prov
+                + [_provenance("concentration ≤25% rule", "gate passed"),
+                   _provenance("council §6 sector cap", "gate passed")]))
+        else:
+            cited = [ln for ln in gate_trace if "BLOCKED" in ln or "§6" in ln]
+            full_trace.append(
+                "entry BLOCKED by portfolio gates → MONITOR only; cited: "
+                + ("; ".join(cited) if cited else "see gate traces"))
+            directives.append(_directive(
+                "MONITOR", sym,
+                dict(entry_params, blocked=True,
+                     blocking_rules=[ln for ln in cited]),
+                PRIORITY_MONITOR_BLOCKED, full_trace,
+                provs + persona_provs + graham_prov
+                + [_provenance("concentration ≤25% rule",
+                               "BLOCKED" if any("concentration" in ln
+                                                for ln in cited) else "passed"),
+                   _provenance("council §6 sector cap",
+                               "BLOCKED" if any("§6" in ln or "sector-cap"
+                                                in ln for ln in cited)
+                               else "passed")]))
+            blocked_traces_by_symbol[sym] = full_trace
+
+    for sym, assessment in assessed.items():
+        if sym not in held:
+            screen_entry(sym, assessment)
+
+    # Holds/MONITORs for held underlyings without an open option evaluated.
+    handled_exit_syms = {d["symbol"] for d in directives
+                         if d["action"] in ("EXIT", "ROLL")}
+    for sym in held:
+        assessment = assessed.get(sym)
+        provs = _persona_provenance(assessment) if assessment else []
+        base = {
+            "consensus_score": assessment.consensus_score if assessment else None,
+            "recommendation": assessment.recommendation if assessment else None,
+        }
+        if sym in handled_exit_syms:
+            continue
+        rec = assessment.recommendation if assessment else "HOLD"
+        if rec in ("AVOID",):
+            directives.append(_directive(
+                "MONITOR", sym, dict(base, watch="council bearish on holding"),
+                PRIORITY_MONITOR_BLOCKED,
+                [f"council consensus "
+                 f"{(assessment.consensus_score if assessment else 0):.1f} → AVOID "
+                 "on a currently-held underlying — watch closely, no adds",
+                 "source: CouncilEngine weighted consensus"],
+                provs + [_provenance("council consensus",
+                                     f"{rec} on held name")]))
+        else:
+            directives.append(_directive(
+                "HOLD", sym, base, PRIORITY_HOLD,
+                [f"held underlying {sym}: council consensus "
+                 f"{(assessment.consensus_score if assessment else 0):.1f} → {rec}; "
+                 "keep existing overlay, collect premium",
+                 "source: CouncilEngine weighted consensus"],
+                provs + [_provenance("council consensus",
+                                     f"{rec} on held name")]))
+    step("entry_screening")
+
+    directives.sort(key=lambda d: d["priority"])
+    result["directives"] = directives
+    step("directives")
+    result["blocked_entries"] = {
+        sym: tr for sym, tr in blocked_traces_by_symbol.items()}  # type: ignore[assignment]
+    return result

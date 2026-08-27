@@ -98,6 +98,30 @@ class AlpacaClient:
 
     # -- data api (option chains) -----------------------------------------
 
+    # -- data api (equity bars) ---------------------------------------------
+
+    def get_daily_bars(self, symbol: str, days: int = 365) -> list[dict]:
+        """Return daily equity bars (list of {c, t, ...}) for the trailing window."""
+        from datetime import datetime, timedelta, timezone
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
+        url = f"{get_data_url().rstrip('/')}/v2/stocks/bars"
+        params = {
+            "symbols": symbol.upper(),
+            "timeframe": "1Day",
+            "start": start.strftime("%Y-%m-%d"),
+            "end": end.strftime("%Y-%m-%d"),
+            "limit": 10000,
+            "feed": "iex",
+        }
+        with httpx.Client(timeout=self.timeout) as client:
+            resp = client.get(url, headers=_headers(), params=params)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Alpaca data API error {resp.status_code}: {resp.text[:300]}")
+        bars = ((resp.json() or {}).get("bars") or {}).get(symbol.upper(), [])
+        return bars
+
     def get_option_snapshots(self, underlying: str) -> list[dict]:
         """Return option snapshots for an underlying (indicative feed)."""
         url = f"{get_data_url().rstrip('/')}/v1beta1/options/snapshots/{underlying.upper()}"

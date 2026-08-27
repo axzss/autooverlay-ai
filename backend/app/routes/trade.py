@@ -16,20 +16,29 @@ VALID_TIF = {"day", "gtc", "opg", "cls", "ioc", "fok"}
 
 
 class TradeRequest(BaseModel):
-    symbol: str = Field(..., description="Equity ticker or OCC option symbol (e.g. AAPL240621C00175000)")
-    qty: float = Field(..., gt=0)
+    # Security bounds: qty/limit_price reject NaN & Infinity (allow_inf_nan=False)
+    # and absurd magnitudes; symbol / client_order_id are length-capped so a
+    # hostile client cannot push multi-MB strings into the order pipeline.
+    symbol: str = Field(..., max_length=64, description="Equity ticker or OCC option symbol (e.g. AAPL240621C00175000)")
+    qty: float = Field(..., gt=0, allow_inf_nan=False, le=1_000_000_000)
     side: Literal["buy", "sell"]
     order_type: Literal["market", "limit"] = Field(default="market", alias="type")
-    time_in_force: str = Field(default="day")
-    limit_price: Optional[float] = Field(default=None, gt=0)
+    time_in_force: str = Field(default="day", max_length=16)
+    limit_price: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False, le=10_000_000)
     extended_hours: bool = False
-    client_order_id: Optional[str] = None
+    client_order_id: Optional[str] = Field(default=None, max_length=128)
 
     model_config = {"populate_by_name": True}
 
     @model_validator(mode="after")
     def validate_order(self) -> "TradeRequest":
+        import re
+
         self.symbol = self.symbol.upper().strip()
+        # Security: equity symbols must be plain tickers (A-Z, digits, dot,
+        # hyphen). Anything else (SQL fragments, shell/unicode junk) is rejected.
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,15}", self.symbol):
+            raise ValueError(f"invalid symbol format: {self.symbol!r}")
         if self.time_in_force.lower() not in VALID_TIF:
             raise ValueError(f"time_in_force must be one of {sorted(VALID_TIF)}")
         if self.order_type == "limit" and self.limit_price is None:
