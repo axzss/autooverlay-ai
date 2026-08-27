@@ -68,6 +68,22 @@ class TestPortfolio:
 # ---------------------------------------------------------------------------
 
 class TestTrade:
+    def test_valid_occ_option_order_is_accepted_in_mock_mode(self, client):
+        response = client.post(
+            "/api/trade",
+            json={
+                "symbol": "AAPL240621C00175000",
+                "qty": 1,
+                "side": "sell",
+                "type": "limit",
+                "time_in_force": "day",
+                "limit_price": 2.5,
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["submitted"] is False
+        assert response.json()["order"]["symbol"] == "AAPL240621C00175000"
+
     def test_api_prefix_alias_validates_trade(self, client):
         response = client.post("/api/trade", json={"nonsense": True})
         assert response.status_code == 422

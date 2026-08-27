@@ -35,9 +35,17 @@ class TradeRequest(BaseModel):
         import re
 
         self.symbol = self.symbol.upper().strip()
+        # Accept a valid OCC option symbol before applying the shorter equity
+        # ticker rule. This keeps option contracts usable for covered calls/CSPs.
+        try:
+            parse_occ_symbol(self.symbol)
+            is_option = True
+        except ValueError:
+            is_option = False
+
         # Security: equity symbols must be plain tickers (A-Z, digits, dot,
         # hyphen). Anything else (SQL fragments, shell/unicode junk) is rejected.
-        if not re.fullmatch(r"[A-Z0-9.\-]{1,15}", self.symbol):
+        if not is_option and not re.fullmatch(r"[A-Z0-9.\-]{1,15}", self.symbol):
             raise ValueError(f"invalid symbol format: {self.symbol!r}")
         if self.time_in_force.lower() not in VALID_TIF:
             raise ValueError(f"time_in_force must be one of {sorted(VALID_TIF)}")
@@ -46,12 +54,7 @@ class TradeRequest(BaseModel):
         if self.order_type == "market" and self.limit_price is not None:
             raise ValueError("limit_price should only be set for limit orders")
         # Option symbols must be traded with day TIF on Alpaca.
-        is_option = any(ch.isdigit() for ch in self.symbol) and len(self.symbol) >= 15 and self.symbol[-1].isdigit()
         if is_option:
-            try:
-                parse_occ_symbol(self.symbol)
-            except ValueError as exc:
-                raise ValueError(str(exc))
             if self.time_in_force.lower() != "day":
                 raise ValueError("option orders require time_in_force='day'")
             if self.limit_price is not None and not (0.01 <= self.limit_price <= 10000):
