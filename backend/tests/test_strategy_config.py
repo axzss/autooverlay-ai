@@ -16,10 +16,8 @@ def restore_config():
 
 
 class TestGetStrategyConfig:
-    def test_api_prefix_alias_returns_same_config(self, client, restore_config):
-        response = client.get("/api/strategy/config")
-        assert response.status_code == 200
-        assert response.json()["config"] == client.get("/strategy/config").json()["config"]
+    def test_legacy_strategy_config_route_is_removed(self, client, restore_config):
+        assert client.get("/strategy/config").status_code == 404
 
     def test_module_config_honors_environment_overrides(self, client, restore_config, monkeypatch):
         import importlib
@@ -31,12 +29,12 @@ class TestGetStrategyConfig:
         )
         importlib.reload(strategy_routes)
 
-        cfg = client.get("/strategy/config").json()["config"]
+        cfg = client.get("/api/strategy/config").json()["config"]
         assert cfg["take_profit_pct"] == 0.75
         assert cfg["delta_min"] == 0.10
 
     def test_get_returns_all_fields(self, client, restore_config):
-        resp = client.get("/strategy/config")
+        resp = client.get("/api/strategy/config")
         assert resp.status_code == 200
         body = resp.json()
         assert body["valid"] is True
@@ -47,14 +45,14 @@ class TestGetStrategyConfig:
             assert key in cfg
 
     def test_defaults(self, client, restore_config):
-        cfg = client.get("/strategy/config").json()["config"]
+        cfg = client.get("/api/strategy/config").json()["config"]
         assert cfg["take_profit_pct"] == 0.60
         assert cfg["stop_loss_mult"] == 2.0
 
 
 class TestPutStrategyConfig:
     def test_api_prefix_alias_accepts_updates(self, client, restore_config):
-        current = client.get("/strategy/config").json()["config"]
+        current = client.get("/api/strategy/config").json()["config"]
         current["take_profit_pct"] = 0.45
         response = client.put("/api/strategy/config", json=current)
         assert response.status_code == 200
@@ -62,28 +60,28 @@ class TestPutStrategyConfig:
 
     def test_put_updates_singleton(self, client, restore_config):
         payload = {"take_profit_pct": 0.45, "delta_min": 0.10}
-        resp = client.put("/strategy/config", json={
-            **{k: v for k, v in client.get("/strategy/config").json()["config"].items()},
+        resp = client.put("/api/strategy/config", json={
+            **{k: v for k, v in client.get("/api/strategy/config").json()["config"].items()},
             **payload,
         })
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        updated = client.get("/strategy/config").json()["config"]
+        updated = client.get("/api/strategy/config").json()["config"]
         assert updated["take_profit_pct"] == 0.45
         assert updated["delta_min"] == 0.10
 
     def test_put_rejects_invalid_range(self, client, restore_config):
-        current = client.get("/strategy/config").json()["config"]
+        current = client.get("/api/strategy/config").json()["config"]
         current["take_profit_pct"] = 1.5  # must be strictly between 0 and 1
-        resp = client.put("/strategy/config", json=current)
+        resp = client.put("/api/strategy/config", json=current)
         assert resp.status_code == 422
         assert any("take_profit_pct" in e for e in resp.json()["detail"]["errors"])
         # singleton untouched on rejection
-        after = client.get("/strategy/config").json()["config"]
+        after = client.get("/api/strategy/config").json()["config"]
         assert after["take_profit_pct"] == 0.60
 
     def test_put_rejects_crossed_bands(self, client, restore_config):
-        current = client.get("/strategy/config").json()["config"]
+        current = client.get("/api/strategy/config").json()["config"]
         current["dte_min"], current["dte_max"] = 40, 20
-        resp = client.put("/strategy/config", json=current)
+        resp = client.put("/api/strategy/config", json=current)
         assert resp.status_code == 422

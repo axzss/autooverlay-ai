@@ -16,31 +16,19 @@ AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Ag
 
 ## Main backend endpoints
 
-Canonical routes:
+Public API routes use the `/api` prefix exclusively:
 
 - `GET /health` — backend status and Alpaca configuration status
-- `GET /portfolio` — account and positions
-- `GET /strategy/screen` — covered-call screening
-- `POST /strategy/screen` — filtered covered-call screening
-- `GET /strategy/config` — active strategy parameters
-- `PUT /strategy/config` — validate and update strategy parameters
-- `GET /council/assess` — persona-based council assessment
-- `POST /council/assess` — filtered council assessment
-- `POST /council/cycle` — autonomous daily council cycle
-- `POST /trade` — validate and submit or simulate an order
-- `GET /trade/orders` — list live or mock orders
-
-The same portfolio, strategy, council, and trade routes are also exposed under the `/api` compatibility prefix:
-
 - `/api/portfolio`
-- `/api/strategy/screen`
-- `/api/strategy/config`
-- `/api/council/assess`
-- `/api/council/cycle`
-- `/api/trade`
-- `/api/trade/orders`
+- `/api/strategy/screen` (GET/POST)
+- `/api/strategy/config` (GET/PUT)
+- `/api/council/assess` (GET/POST)
+- `/api/council/cycle` (POST)
+- `/api/trade` (POST)
+- `/api/trade/orders` (GET)
 
-The `/api` paths are aliases using the same handlers and response contracts.
+There are no duplicate application routes without the `/api` prefix. Legacy paths
+such as `/portfolio` or `/trade` intentionally return HTTP 404.
 
 ## Important behavior
 

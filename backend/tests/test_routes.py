@@ -35,13 +35,8 @@ class TestPortfolio:
         assert response.status_code == 200
         assert response.json()["mode"] in ("mock", "live", "error")
 
-    def test_portfolio_endpoint_exists(self, client):
-        for path in ("/api/portfolio", "/portfolio"):
-            resp = client.get(path)
-            if resp.status_code != 404:
-                break
-        assert resp.status_code != 404, "no portfolio route found"
-        assert resp.status_code < 500
+    def test_legacy_portfolio_route_is_removed(self, client):
+        assert client.get("/portfolio").status_code == 404
 
     def test_positions_shape_with_mocked_alpaca(self, client, mock_alpaca):
         mock_alpaca.get_all_positions.return_value = [
@@ -51,7 +46,7 @@ class TestPortfolio:
         mock_alpaca.get_account.return_value = {
             "cash": "50000.00", "equity": "68000.00", "buying_power": "50000.00"
         }
-        for path in ("/api/portfolio/positions", "/api/portfolio", "/portfolio"):
+        for path in ("/api/portfolio/positions", "/api/portfolio"):
             resp = client.get(path)
             if resp.status_code != 404:
                 break
@@ -94,11 +89,14 @@ class TestTrade:
         assert response.json()["mode"] in ("mock", "live")
 
     def _submit(self, client, payload):
-        for path in ("/api/trade", "/api/trade/order", "/trade"):
+        for path in ("/api/trade", "/api/trade/order"):
             resp = client.post(path, json=payload)
             if resp.status_code != 404:
                 return path, resp
         return path, resp
+
+    def test_legacy_trade_route_is_removed(self, client):
+        assert client.post("/trade", json={"symbol": "AAPL", "qty": 1, "side": "buy"}).status_code == 404
 
     def test_submit_order_mocked_alpaca(self, client, mock_alpaca):
         mock_alpaca.submit_order.return_value = {
@@ -129,7 +127,7 @@ class TestTrade:
 class TestStrategy:
     def test_screen_endpoint_responds(self, client, mock_alpaca):
         mock_alpaca.get_option_chain.return_value = []
-        for path in ("/api/strategy/screen", "/api/strategy", "/strategy"):
+        for path in ("/api/strategy/screen", "/api/strategy"):
             resp = client.post(
                 path,
                 json={"symbols": ["AAPL"], "strategies": ["covered_call"]},

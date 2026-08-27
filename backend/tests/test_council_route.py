@@ -20,7 +20,7 @@ def live_env(monkeypatch):
 
 
 def test_council_assess_mock_mode(client):
-    resp = client.get("/council/assess")
+    resp = client.get("/api/council/assess")
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "mock"
@@ -34,16 +34,12 @@ def test_council_assess_mock_mode(client):
     assert first["tier"] in ("LOW", "MID", "HIGH")
 
 
-def test_council_assess_api_alias_matches_canonical(client):
-    canonical = client.get("/council/assess?symbols=AAPL")
-    alias = client.get("/api/council/assess?symbols=AAPL")
-    assert canonical.status_code == 200
-    assert alias.status_code == 200
-    assert alias.json() == canonical.json()
+def test_legacy_council_assess_route_is_removed(client):
+    assert client.get("/council/assess?symbols=AAPL").status_code == 404
 
 
 def test_council_assess_symbol_filter(client):
-    resp = client.get("/council/assess?symbols=TSLA")
+    resp = client.get("/api/council/assess?symbols=TSLA")
     assert resp.status_code == 200
     data = resp.json()
     assert [a["symbol"] for a in data["assessments"]] == ["TSLA"]
@@ -65,7 +61,7 @@ def test_council_assess_live_with_mocked_alpaca(client, live_env):
                      "w52_low": 200.0, "w52_high": 250.0},
         },
     ) as fetch:
-        resp = client.get("/council/assess?symbols=AAPL")
+        resp = client.get("/api/council/assess?symbols=AAPL")
     assert resp.status_code == 200
     fetch.assert_called_once()
     data = resp.json()
@@ -77,9 +73,9 @@ def test_council_assess_live_with_mocked_alpaca(client, live_env):
 
 
 def test_council_assess_rejects_bad_symbols(client):
-    resp = client.get("/council/assess?symbols=")
+    resp = client.get("/api/council/assess?symbols=")
     assert resp.status_code == 200  # empty -> default universe
-    resp = client.get("/council/assess?symbols=DROP TABLE")
+    resp = client.get("/api/council/assess?symbols=DROP TABLE")
     assert resp.status_code == 422
 
 

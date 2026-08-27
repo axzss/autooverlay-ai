@@ -24,14 +24,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(portfolio_router, tags=["portfolio"])
-app.include_router(trade_router, tags=["trading"])
-app.include_router(strategy_router, tags=["strategy"])
-# Compatibility aliases for frontend clients that use the conventional /api prefix.
+# All application routes use the /api prefix as the single public API contract.
 app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
 app.include_router(trade_router, prefix="/api", tags=["trading"])
 app.include_router(strategy_router, prefix="/api", tags=["strategy"])
-app.include_router(council_router, tags=["council"])
 app.include_router(council_router, prefix="/api", tags=["council"])
 
 
