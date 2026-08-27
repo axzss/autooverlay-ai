@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field, ValidationError, constr
 
 from ..alpaca_client import AlpacaClient, is_configured
-from ..mock_data import mock_council_snapshots
+from ..mock_data import mock_account, mock_council_snapshots, mock_positions
 
 router = APIRouter()
 
@@ -166,3 +166,66 @@ async def _assess(req: CouncilAssessRequest) -> dict:
             missing.append(sym)
 
     return {"mode": mode, "count": len(assessments), "assessments": assessments}
+
+
+# ---------------------------------------------------------------------------
+# POST /council/cycle — run the full autonomous daily cycle
+# ---------------------------------------------------------------------------
+
+class CouncilCycleRequest(BaseModel):
+    """Optional overrides; defaults pull live Alpaca portfolio or mock data."""
+    candidates: Optional[List[str]] = Field(default=None, max_length=50)
+    cash_override: Optional[float] = Field(default=None, ge=0)
+    portfolio_state_overrides: Optional[dict] = None
+
+
+@router.post("/council/cycle")
+async def council_cycle(req: CouncilCycleRequest) -> dict:
+    import math
+
+    from agent.council.daily_cycle import run_daily_cycle
+
+    # Live portfolio from Alpaca when configured, else bundled mock fallback.
+    positions: List[dict] = []
+    cash: float = 0.0
+    account: dict = {}
+    mode = "live"
+    if is_configured():
+        try:
+            client = AlpacaClient()
+            positions = [
+                p for p in client.get_positions()
+                if isinstance(p, dict) and str(p.get("symbol", "")).upper() != "SPY"
+            ]
+            account = client.get_account() or {}
+        except Exception:
+            positions, account = [], {}
+    if not positions and not account:
+        mode = "mock"
+        account = mock_account()
+        positions = mock_positions()
+
+    def _f(v) -> float:
+        try:
+            f = float(v)
+            return f if math.isfinite(f) else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    cash = req.cash_override if req.cash_override is not None else _f(
+        account.get("cash") or account.get("buying_power") or 0)
+    state_overrides = {
+        "peak_equity": _f(account.get("equity")) or None,
+        "prev_equity": _f(account.get("last_equity")) or None,
+        **(req.portfolio_state_overrides or {}),
+    }
+
+    return run_daily_cycle(
+        positions, cash,
+        open_option_positions=None,  # TODO: wire open option overlays from Alpaca
+        candidates=req.candidates,
+        candidate_snapshots={s["symbol"]: s for s in mock_council_snapshots()}
+        if mode == "mock" else None,
+        portfolio_state_overrides=state_overrides,
+        allow_provider=is_configured(),
+    )

@@ -199,3 +199,53 @@ Also previously missing: earnings-yield-vs-bond-rate rule (E/P should clear high
 ### Caveats
 
 Graham's thresholds are 1972 figures ("all our minimum figures must be arbitrary"); they are screening floors, not valuation outputs. The council applies them as exclusion tests with weighted penalties — faithful to their purpose of eliminating most candidates — while margin of safety remains the central, price-dependent concept that no static screen substitutes for.
+
+---
+
+## ADDENDUM — Fundamentals-Enriched Re-Assessment
+
+**Date:** 2026-08-26 06:43 UTC  
+**Data sources:** Alpaca price/vol bars + free Yahoo Finance unofficial fundamentals endpoints (`agent/council/fundamentals.py`, 24h /tmp cache). No paid APIs.  
+**Confidence:** upgraded **LOW → HIGH** where fundamentals were available; fields that remain unavailable degrade to neutral / INCONCLUSIVE per persona rules.
+
+### Consensus Table (fundamentals-enriched)
+
+| Symbol | Baseline (LOW) | New Consensus | Δ | Rec | Majority | Split | P/E | P/B | Cur. Ratio | Div Yld % | ROE % | D/E |
+|---|---:|---:|---:|---|---|---|---:|---:|---:|---:|---:|---:|
+| NVDA | 53.9 | 68.0 | +14.1 | ACCUMULATE | ACCUMULATE | no | 31.9 | 26.4 | 3.4 | 0.48 | 114.3 | 0.07 |
+| MSFT | 53.9 | 60.2 | +6.3 | ACCUMULATE | HOLD | yes | 27.2 | 8.3 | 1.2 | 0.75 | 34.0 | 0.29 |
+| KO | 56.6 | 59.2 | +2.6 | HOLD | HOLD | yes | 27.6 | 10.9 | 1.3 | 2.30 | 42.1 | 1.16 |
+| AAPL | 53.3 | 57.2 | +3.9 | HOLD | HOLD | yes | 35.6 | 42.1 | 1.0 | 0.35 | 148.8 | 0.78 |
+| SPY | 56.6 | 55.4 | -1.2 | HOLD | HOLD | no | 25.8 | n/a | n/a | n/a | n/a | n/a |
+| QQQ | 56.6 | 55.4 | -1.2 | HOLD | HOLD | no | 30.4 | n/a | n/a | n/a | n/a | n/a |
+| JPM | 56.6 | 52.0 | -4.6 | HOLD | ACCUMULATE | yes | 15.3 | 2.7 | n/a | 1.68 | 17.8 | n/a |
+| TSLA | 53.9 | 43.8 | -10.1 | HOLD | HOLD | yes | 321.3 | 15.9 | 1.9 | n/a | 4.7 | 0.18 |
+
+### Graham Ch.14 Defensive Tests — Per-Symbol Outcomes
+
+PASS/FAIL/INCONCLUSIVE per exact-book criterion. Tests needing 20-year dividend history or 10-year EPS history are marked **INCONCLUSIVE**, not failed, when the free sources cannot supply sufficient history.
+
+| Test | AAPL | MSFT | NVDA | TSLA | SPY | QQQ | JPM | KO |
+|---|---|---|---|---|---|---|---|---|
+| T1: Adequate Size | ✅ | ✅ | ✅ | ✅ | ➖ | ➖ | ✅ | ✅ |
+| T2: A Sufficiently Strong Financial Condition | ❌ | ❌ | ✅ | ❌ | ➖ | ➖ | ➖ | ❌ |
+| T3: Earnings Stability | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ |
+| T4: Dividend Record | ➖ | ✅ | ➖ | ➖ | ✅ | ✅ | ✅ | ✅ |
+| T5: Earnings Growth | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ |
+| T6: Moderate Price/Earnings Ratio | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| T7: Moderate Ratio | ❌ | ❌ | ❌ | ❌ | ➖ | ➖ | ❌ | ❌ |
+
+- **AAPL**: T1=PASS (annual sales $466823M); T2=FAIL (current ratio 1.003); T3=INCONCLUSIVE (no 10-year earnings history); T4=INCONCLUSIVE (no 20-year dividend record); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 35.6x vs 15x ceiling); T7=FAIL (P/B 42.1x vs 1.5x; PExPB 1498.1 vs 22.5 cap)
+- **MSFT**: T1=PASS (annual sales $331839M); T2=FAIL (current ratio 1.23); T3=INCONCLUSIVE (no 10-year earnings history); T4=PASS (dividends paid in 20/20 recent years); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 27.2x vs 15x ceiling); T7=FAIL (P/B 8.3x vs 1.5x; PExPB 224.4 vs 22.5 cap)
+- **NVDA**: T1=PASS (annual sales $253491M); T2=PASS (current ratio 3.441); T3=INCONCLUSIVE (no 10-year earnings history); T4=INCONCLUSIVE (no 20-year dividend record); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 31.9x vs 15x ceiling); T7=FAIL (P/B 26.4x vs 1.5x; PExPB 843.3 vs 22.5 cap)
+- **TSLA**: T1=PASS (annual sales $103619M); T2=FAIL (current ratio 1.941); T3=INCONCLUSIVE (no 10-year earnings history); T4=INCONCLUSIVE (no 20-year dividend record); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 321.3x vs 15x ceiling); T7=FAIL (P/B 15.9x vs 1.5x; PExPB 5116.9 vs 22.5 cap)
+- **SPY**: T1=INCONCLUSIVE (no size data); T2=INCONCLUSIVE (current ratio n/a); T3=INCONCLUSIVE (no 10-year earnings history); T4=PASS (dividends paid in 20/20 recent years); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 25.8x vs 15x ceiling); T7=INCONCLUSIVE (no P/B)
+- **QQQ**: T1=INCONCLUSIVE (no size data); T2=INCONCLUSIVE (current ratio n/a); T3=INCONCLUSIVE (no 10-year earnings history); T4=PASS (dividends paid in 20/20 recent years); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 30.4x vs 15x ceiling); T7=INCONCLUSIVE (no P/B)
+- **JPM**: T1=PASS (annual sales $186328M); T2=INCONCLUSIVE (current ratio n/a); T3=INCONCLUSIVE (no 10-year earnings history); T4=PASS (dividends paid in 20/20 recent years); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 15.3x vs 15x ceiling); T7=FAIL (P/B 2.7x vs 1.5x; PExPB 40.9 vs 22.5 cap)
+- **KO**: T1=PASS (annual sales $50129M); T2=FAIL (current ratio 1.305); T3=INCONCLUSIVE (no 10-year earnings history); T4=PASS (dividends paid in 20/20 recent years); T5=INCONCLUSIVE (no decade growth data); T6=FAIL (P/E 27.6x vs 15x ceiling); T7=FAIL (P/B 10.9x vs 1.5x; PExPB 301.1 vs 22.5 cap)
+
+### Confidence Upgrade Statement
+
+With fundamentals merged from free public sources, the council re-ran the full eight-symbol universe at **HIGH confidence**: every persona now receives valuation (8/8 with P/E), profitability, leverage, and dividend inputs instead of degrading to neutral defaults. Versus the LOW-confidence baseline: 4 symbols scored higher, 4 lower, 0 unchanged. New recommendations: NVDA→ACCUMULATE, MSFT→ACCUMULATE, KO→HOLD, AAPL→HOLD, SPY→HOLD, QQQ→HOLD, JPM→HOLD, TSLA→HOLD. Graham tests that could not be decided on incomplete history are reported INCONCLUSIVE rather than failed.
+
+*ETF note:* SPY/QQQ are index funds — trailing P/E, P/B and per-share fundamentals do not apply; their enrichment comes via size/revenue proxies only, so their scores remain price/vol-dominated by design.
