@@ -123,6 +123,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+export interface DailyDirective {
+  action: string
+  symbol: string
+  priority: number
+  reasoning_trace: string[]
+  provenance: Array<{ source: string; detail?: string }>
+  params?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface CycleResponse {
+  halted?: boolean
+  kill_switch?: { halted: boolean; reasons: string[] }
+  mr_market?: Record<string, unknown>
+  directives: DailyDirective[]
+  steps_run?: string[]
+  assessments?: Array<Record<string, unknown>>
+  [key: string]: unknown
+}
+
 export const api = {
   getPortfolio: () => request<PortfolioSnapshot>('/portfolio'),
   getHealth: () => request<HealthResponse>('/health'),
@@ -133,6 +153,11 @@ export const api = {
       | { candidates: AgentRecommendation[] }
       | { ranked_recommendations: AgentRecommendation[]; portfolio_context?: PortfolioContext; mode?: string }
     >('/strategy/screen'),
+  runDailyCycle: (body?: { candidates?: string[]; cash_override?: number }) =>
+    request<CycleResponse>('/council/cycle', {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+    }),
   placeTrade: (body: TradeRequest) =>
     request<TradeResponse>('/trade', {
       method: 'POST',
