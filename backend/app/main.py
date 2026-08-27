@@ -32,6 +32,7 @@ app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
 app.include_router(trade_router, prefix="/api", tags=["trading"])
 app.include_router(strategy_router, prefix="/api", tags=["strategy"])
 app.include_router(council_router, tags=["council"])
+app.include_router(council_router, prefix="/api", tags=["council"])
 
 
 def _sanitize(obj):

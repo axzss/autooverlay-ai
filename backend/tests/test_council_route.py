@@ -34,6 +34,14 @@ def test_council_assess_mock_mode(client):
     assert first["tier"] in ("LOW", "MID", "HIGH")
 
 
+def test_council_assess_api_alias_matches_canonical(client):
+    canonical = client.get("/council/assess?symbols=AAPL")
+    alias = client.get("/api/council/assess?symbols=AAPL")
+    assert canonical.status_code == 200
+    assert alias.status_code == 200
+    assert alias.json() == canonical.json()
+
+
 def test_council_assess_symbol_filter(client):
     resp = client.get("/council/assess?symbols=TSLA")
     assert resp.status_code == 200
