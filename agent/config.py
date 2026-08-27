@@ -45,6 +45,9 @@ class StrategyConfig:
     kill_max_single_day_loss_pct: float = 2.0    # worst one-day loss that halts
     kill_consecutive_stop_losses: int = 3        # consecutive stop-loss exits before halt
 
+    # Overlay drawdown mode
+    overlay_only_drawdown: bool = True           # drawdown from overlay positions only when True
+
     # ------------------------------------------------------------------ #
     # Validation                                                          #
     # ------------------------------------------------------------------ #

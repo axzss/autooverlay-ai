@@ -20,6 +20,17 @@ from .config import StrategyConfig
 VALID_ACTIONS = ("INITIATE_POSITION", "HOLD_POSITION", "MONITOR_CLOSELY")
 
 
+def _normalize_trace(trace) -> list[str]:
+    """Ensure *trace* is a list[str]; coerce tuples, sets, or bare strings."""
+    if isinstance(trace, list):
+        return [str(t) for t in trace]
+    if isinstance(trace, (tuple, set)):
+        return [str(t) for t in trace]
+    if isinstance(trace, str):
+        return [trace]
+    return [str(trace)]
+
+
 class DecisionEngine:
     def __init__(self, account_cash: float = 100000.0,
                  portfolio_value: Optional[float] = None,
@@ -69,7 +80,7 @@ class DecisionEngine:
                     "risk_score": r["risk_score"],
                     "rationale": r["rationale"],
                     "reasoning": r["rationale"],  # back-compat key
-                    "reasoning_trace": r.get("reasoning_trace", []),
+                    "reasoning_trace": _normalize_trace(r.get("reasoning_trace", [])),
                     "premium_per_share": r.get("premium_per_share"),
                 })
 

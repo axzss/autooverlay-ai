@@ -52,6 +52,17 @@ except ImportError:  # pragma: no cover - direct-script imports
     except ImportError:  # last resort
         StrategyConfig = None  # type: ignore[assignment,misc]
 
+def _normalize_trace(trace) -> list[str]:
+    """Ensure *trace* is a list[str]; coerce tuples, sets, or bare strings."""
+    if isinstance(trace, list):
+        return [str(t) for t in trace]
+    if isinstance(trace, (tuple, set)):
+        return [str(t) for t in trace]
+    if isinstance(trace, str):
+        return [trace]
+    return [str(trace)]
+
+
 # Priority ladder (1 = act first).
 PRIORITY_EXIT = 1        # TAKE_PROFIT / STOP_LOSS closes
 PRIORITY_ROLL = 2        # rolls reset risk before new risk is added
@@ -85,9 +96,23 @@ def _build_portfolio_state(positions: List[dict], cash: float,
 
 def _load_snapshots(symbols: List[str],
                     injected: Optional[Dict[str, dict]],
-                    allow_provider: bool) -> tuple[Dict[str, dict], List[str]]:
+                    allow_provider: bool,
+                    fetch_timeout_seconds: float = 5.0,
+                    fetch_retries: int = 2) -> tuple[Dict[str, dict], List[str]]:
     """Merge injected snapshots first; optionally top up via the sibling
-    fundamentals provider (never raises — failures degrade to missing)."""
+    fundamentals provider (never raises — failures degrade to missing).
+
+    Provider calls are wrapped with a per-symbol timeout and retry. On
+    persistent failure the bundled docs/market_snapshots.json is loaded as
+    fallback (only when the filesystem is readable).
+    """
+    import concurrent.futures
+    import json as _json
+    import os as _os
+    from pathlib import Path as _Path
+    from concurrent.futures import TimeoutError as _FuturesTimeoutError
+    import time as _time
+
     snaps: Dict[str, dict] = {}
     for sym in symbols:
         s = (injected or {}).get(sym)
@@ -97,16 +122,58 @@ def _load_snapshots(symbols: List[str],
             snaps[sym] = u
     missing = [s for s in symbols if s not in snaps]
     if missing and allow_provider:
-        try:  # sibling's provider, if present on disk
-            from .fundamentals import build_snapshot_with_fundamentals
-            for sym in list(missing):
-                base = dict(snaps.get(sym) or {"symbol": sym})
-                snaps[sym] = build_snapshot_with_fundamentals(
-                    sym, dict(base))
-                missing.remove(sym)
-        except Exception:  # graceful degradation — never block the cycle
-            pass
+        _FETCH_TIMEOUT = max(fetch_timeout_seconds, 0.1)
+        _FETCH_RETRIES = max(fetch_retries, 1)
+
+        # Retry helper with timeout
+        def _fetch_one(sym: str) -> dict | None:
+            for attempt in range(_FETCH_RETRIES):
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        fut = pool.submit(
+                            _provider_fetch_snapshot, sym)
+                        return fut.result(timeout=_FETCH_TIMEOUT)
+                except (_FuturesTimeoutError, Exception):
+                    _time.sleep(0.2 * (attempt + 1))
+            return None  # failed after retries
+
+        still_missing: list[str] = []
+        for sym in list(missing):
+            snap = _fetch_one(sym)
+            if isinstance(snap, dict) and snap.get("symbol"):
+                snaps[snap["symbol"]] = snap
+                if sym in missing:
+                    missing.remove(sym)
+            else:
+                still_missing.append(sym)
+
+        # Fallback to bundled docs/market_snapshots.json for any still-missing
+        if still_missing:
+            try:
+                repo_root = str(_Path(__file__).resolve().parents[2])
+                snap_path = _os.path.join(repo_root, "docs", "market_snapshots.json")
+                if _os.path.isfile(snap_path):
+                    with open(snap_path) as fh:
+                        bundled = _json.load(fh)
+                    for entry in bundled:
+                        sym = entry.get("symbol", "").upper()
+                        if sym in still_missing:
+                            snaps[sym] = entry
+                            still_missing.remove(sym)
+                            if sym in missing:
+                                missing.remove(sym)
+            except Exception:
+                pass  # graceful degradation — never block the cycle
     return snaps, missing
+
+
+def _provider_fetch_snapshot(symbol: str) -> dict | None:
+    """Call the sibling fundamentals provider for a single symbol."""
+    try:
+        from .fundamentals import build_snapshot_with_fundamentals
+        return build_snapshot_with_fundamentals(symbol, {"symbol": symbol})
+    except Exception:
+        return None
 
 
 def _provenance(source: str, detail: str | None = None) -> dict:
@@ -127,13 +194,14 @@ def _persona_provenance(assessment) -> List[dict]:
 
 
 def _directive(action: str, symbol: str, params: dict, priority: int,
-               trace: List[str], provenance: List[dict]) -> dict:
+               trace: list[str] | tuple | str | None,
+               provenance: list[dict]) -> dict:
     return {
         "action": action,
         "symbol": symbol,
         "params": params,
         "priority": priority,
-        "reasoning_trace": list(trace),
+        "reasoning_trace": _normalize_trace(trace),
         "provenance": provenance,
     }
 
@@ -148,8 +216,16 @@ def run_daily_cycle(
     portfolio_state_overrides: Optional[dict] = None,
     config=None,
     allow_provider: bool = False,
+    fetch_timeout_seconds: float = 5.0,
+    fetch_retries: int = 2,
 ) -> dict:
-    """Run one full daily council cycle. See module docstring for ordering."""
+    """Run one full daily council cycle. See module docstring for ordering.
+
+    fetch_timeout_seconds: per-symbol timeout for provider snapshot fetches.
+    fetch_retries: number of retry attempts per symbol on failure.
+    On persistent failure the bundled docs/market_snapshots.json is used as
+    fallback (if available).
+    """
     config = config or StrategyConfig()
     positions = [dict(p) for p in (portfolio_positions or [])]
     open_options = [dict(o) for o in (open_option_positions or [])]
@@ -173,7 +249,8 @@ def run_daily_cycle(
     # ---- 0. KILL SWITCH FIRST ------------------------------------------- #
     portfolio_state = _build_portfolio_state(
         positions, cash, portfolio_state_overrides)
-    kill = evaluate_kill_switch(portfolio_state, config=config)
+    kill = evaluate_kill_switch(portfolio_state, config=config,
+                                positions=positions)
     result["kill_switch"] = kill
     result["portfolio_state"] = {
         k: round(float(v), 2) if isinstance(v, (int, float)) else v
@@ -193,7 +270,9 @@ def run_daily_cycle(
 
     # ---- a. Snapshots + fundamentals ------------------------------------- #
     snapshots, missing = _load_snapshots(
-        wanted, candidate_snapshots, allow_provider)
+        wanted, candidate_snapshots, allow_provider,
+        fetch_timeout_seconds=fetch_timeout_seconds,
+        fetch_retries=fetch_retries)
     result["snapshot_symbols_missing"] = missing
     step("snapshots")
 

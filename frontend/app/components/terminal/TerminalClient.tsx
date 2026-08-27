@@ -7,10 +7,13 @@ import {
   normalizeScreenings,
   toFeedEntry,
   type AgentRecommendation,
+  type CycleResponse,
+  type DailyDirective,
   type FeedEntry,
   type PortfolioContext,
 } from '../../../lib/api'
 import AgentFeedCard from './AgentFeedCard'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 function Skeleton() {
   return (
@@ -34,6 +37,14 @@ export default function TerminalClient() {
   const [error, setError] = useState<string | null>(null)
   const [lastRun, setLastRun] = useState<string | null>(null)
 
+  // Daily Cycle state
+  const [directives, setDirectives] = useState<DailyDirective[]>([])
+  const [cycleRunning, setCycleRunning] = useState(false)
+  const [cycleError, setCycleError] = useState<string | null>(null)
+  const [lastCycleRun, setLastCycleRun] = useState<string | null>(null)
+  const [halted, setHalted] = useState(false)
+  const [expandedDirectives, setExpandedDirectives] = useState<Set<number>>(new Set())
+
   const runCycle = useCallback(async (isInitial: boolean) => {
     if (isInitial) setLoading(true)
     else setRunning(true)
@@ -52,6 +63,31 @@ export default function TerminalClient() {
       setLoading(false)
       setRunning(false)
     }
+  }, [])
+
+  const runDailyCycle = useCallback(async () => {
+    setCycleRunning(true)
+    setCycleError(null)
+    try {
+      const res = await api.runDailyCycle()
+      setDirectives(res.directives ?? [])
+      setHalted(res.halted ?? false)
+      setLastCycleRun(new Date().toLocaleTimeString())
+    } catch (err) {
+      setCycleError(err instanceof Error ? err.message : 'Daily cycle failed')
+      setDirectives([])
+    } finally {
+      setCycleRunning(false)
+    }
+  }, [])
+
+  const toggleDirective = useCallback((idx: number) => {
+    setExpandedDirectives(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
   }, [])
 
   useEffect(() => {
@@ -141,6 +177,123 @@ export default function TerminalClient() {
             </div>
           </div>
         )}
+
+        {/* ── Daily Cycle panel ─────────────────────────────────────── */}
+        <div className="rounded border border-[#1e293b] bg-[#0f172a] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-[#94a3b8]">
+              Daily Cycle
+            </h2>
+            <div className="flex items-center gap-2">
+              {lastCycleRun && (
+                <span className="text-[10px] text-[#64748b]">
+                  Last run: {lastCycleRun}
+                </span>
+              )}
+              <button
+                onClick={runDailyCycle}
+                disabled={cycleRunning}
+                className="inline-flex items-center gap-2 rounded border border-[#22c55e]/50 bg-[#0f172a] px-3 py-1.5 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10 transition-colors disabled:opacity-50"
+              >
+                {cycleRunning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Zap className="h-3.5 w-3.5" />
+                )}
+                {cycleRunning ? 'Running…' : 'Run Daily Cycle'}
+              </button>
+            </div>
+          </div>
+
+          {halted && (
+            <p className="flex items-center gap-2 rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-xs text-[#f87171]">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Kill-switch HALT — all trading suspended
+            </p>
+          )}
+
+          {cycleError && (
+            <p className="flex items-center gap-2 rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-xs text-[#f87171]">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              {cycleError}
+            </p>
+          )}
+
+          {directives.length === 0 && !cycleError && !halted && (
+            <p className="text-xs text-[#64748b] text-center py-3">
+              No directives yet — run the daily cycle to generate a directive list.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {directives.map((d, idx) => {
+              const expanded = expandedDirectives.has(idx)
+              const actionColor: Record<string, string> = {
+                INITIATE: 'border-[#22c55e]/50 bg-[#052e16] text-[#22c55e]',
+                HOLD: 'border-[#64748b]/50 bg-[#1e293b] text-[#94a3b8]',
+                MONITOR: 'border-[#f59e0b]/50 bg-[#451a03] text-[#fbbf24]',
+                EXIT: 'border-[#ef4444]/50 bg-[#450a0a] text-[#f87171]',
+                ROLL: 'border-[#3b82f6]/50 bg-[#172554] text-[#60a5fa]',
+              }
+              const badge = actionColor[d.action] ?? actionColor.HOLD
+              const traceLines = Array.isArray(d.reasoning_trace) ? d.reasoning_trace : []
+              const provChips = Array.isArray(d.provenance) ? d.provenance : []
+
+              return (
+                <div
+                  key={`${d.symbol}-${d.action}-${idx}`}
+                  className="rounded border border-[#1e293b] bg-[#0a0f1a] p-3 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${badge}`}>
+                        {d.action}
+                      </span>
+                      <span className="text-sm font-medium text-white">{d.symbol}</span>
+                      <span className="text-[10px] text-[#64748b]">
+                        P{d.priority}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => toggleDirective(idx)}
+                      className="text-[#64748b] hover:text-[#94a3b8] transition-colors"
+                      aria-label={expanded ? 'Collapse' : 'Expand'}
+                    >
+                      {expanded
+                        ? <ChevronDown className="h-4 w-4" />
+                        : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                  </div>
+
+                  {provChips.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {provChips.map((p, pi) => (
+                        <span
+                          key={pi}
+                          className="rounded border border-[#334155] bg-[#020617] px-1.5 py-0.5 text-[9px] text-[#94a3b8]"
+                        >
+                          {p.source}
+                          {p.detail ? `: ${p.detail.slice(0, 48)}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {expanded && traceLines.length > 0 && (
+                    <div className="rounded border border-[#1e293b] bg-[#020617] p-2 space-y-0.5">
+                      {traceLines.map((line, li) => (
+                        <p key={li} className="text-[11px] text-[#94a3b8] font-mono leading-snug">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        {/* ── end Daily Cycle panel ─────────────────────────────────── */}
       </main>
     </div>
   )

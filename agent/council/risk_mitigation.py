@@ -31,7 +31,8 @@ def _cfg_get(config: "StrategyConfig | None", name: str, default: float) -> floa
 
 
 def evaluate_kill_switch(portfolio_state: dict,
-                         config: "StrategyConfig | None" = None) -> dict:
+                         config: "StrategyConfig | None" = None,
+                         positions: list[dict] | None = None) -> dict:
     """Return ``{"halted": bool, "reasons": list[str]}`` for a portfolio snapshot.
 
     Recognized keys in ``portfolio_state``:
@@ -39,17 +40,41 @@ def evaluate_kill_switch(portfolio_state: dict,
         initial_equity / peak_equity: float
         prev_equity: float                equity at previous day's close
         consecutive_stop_losses: int
+
+    When ``config.overlay_only_drawdown`` is True, the drawdown calculation
+    uses only overlay positions (short-option positions with a collateral or
+    market_value field) rather than full NAV.
     """
     max_dd = _cfg_get(config, "kill_max_drawdown_pct", DEFAULT_MAX_DRAWDOWN_PCT)
     max_1d = _cfg_get(config, "kill_max_single_day_loss_pct", DEFAULT_SINGLE_DAY_LOSS_PCT)
     max_stops = int(_cfg_get(config, "kill_consecutive_stop_losses", DEFAULT_CONSEC_STOP_LOSSES))
+    overlay_only = bool(_cfg_get(config, "overlay_only_drawdown", True))
 
     reasons: list[str] = []
 
     equity = portfolio_state.get("equity")
     peak = portfolio_state.get("peak_equity") or portfolio_state.get("initial_equity")
-    if isinstance(equity, (int, float)) and isinstance(peak, (int, float)) and peak > 0:
-        dd = (equity / peak - 1) * 100
+
+    # When overlay_only_drawdown is True, compute drawdown from overlay positions only.
+    if overlay_only and positions:
+        overlay_equity = float(sum(
+            float(p.get("collateral", 0) or p.get("market_value", 0) or 0)
+            for p in positions
+        ))
+        if overlay_equity > 0:
+            # Use overlay equity as both current and peak (no separate peak yet)
+            dd_equity = overlay_equity
+            dd_peak = overlay_equity
+        else:
+            # No overlay collateral detected — fall back to full NAV
+            dd_equity = equity
+            dd_peak = peak
+    else:
+        dd_equity = equity
+        dd_peak = peak
+
+    if isinstance(dd_equity, (int, float)) and isinstance(dd_peak, (int, float)) and dd_peak > 0:
+        dd = (dd_equity / dd_peak - 1) * 100
         if dd <= -max_dd:
             reasons.append(
                 f"portfolio drawdown {dd:.2f}% breaches kill threshold -{max_dd:.2f}%")
