@@ -24,6 +24,7 @@ Public API routes use the `/api` prefix exclusively:
 - `/api/strategy/config` (GET/PUT)
 - `/api/council/assess` (GET/POST)
 - `/api/council/cycle` (POST)
+- `/api/agent/run` (POST) — recommendation-only agent cycle
 - `/api/trade` (POST)
 - `/api/trade/orders` (GET)
 
@@ -69,8 +70,9 @@ Supported decision actions:
 ### API compatibility
 
 - Added backend-only `/api` aliases without changing frontend files.
-- Registered portfolio, strategy, council, and trade routers at canonical paths and under `/api`.
-- Added tests for alias status codes and canonical/alias response parity.
+- Standardized the public backend contract on `/api` routes without changing frontend files.
+- Removed duplicate portfolio, strategy, council, and trade routes without the `/api` prefix.
+- Added tests for public routes and 404 responses for removed legacy paths.
 
 ### Council and security integration
 
@@ -87,6 +89,8 @@ Supported decision actions:
 ### Documentation and delivery
 
 - Added `specials/BACKEND_FRONTEND_API.md` with endpoint contracts, frontend consumers, data flow, mock/live behavior, known gaps, and verification steps.
+- Added `backend/app/routes/agent.py` with recommendation-only `POST /api/agent/run`.
+- The agent-run endpoint delegates to the existing council daily cycle, returns recommendations, risk summary, and reasoning, and never submits broker orders.
 - This file records backend-specific implementation status and remaining work.
 - No frontend files were modified during the API alias or OCC validation changes.
 
@@ -99,10 +103,10 @@ source .venv/Scripts/activate
 python -m pytest backend/tests agent/tests -q
 ```
 
-Latest result after council integration and OCC validation:
+Latest result after council integration, OCC validation, and agent-run endpoint:
 
 ```text
-208 passed, 1 skipped, 1 warning
+212 passed, 1 skipped, 1 warning
 ```
 
 The warning is a non-blocking Starlette/httpx deprecation warning. Python compilation also passed with `python -m compileall -q backend agent`.

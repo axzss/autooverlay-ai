@@ -36,6 +36,7 @@ prefix have been removed and intentionally return HTTP 404.
 | `/api/strategy/config` | PUT | Update strategy parameters | `backend/app/routes/strategy.py` |
 | `/api/council/assess` | GET/POST | Run persona-based assessment | `backend/app/routes/council.py` |
 | `/api/council/cycle` | POST | Run autonomous daily cycle | `backend/app/routes/council.py` |
+| `/api/agent/run` | POST | Run recommendation-only agent cycle | `backend/app/routes/agent.py` |
 | `/api/trade` | POST | Validate and submit/simulate order | `backend/app/routes/trade.py` |
 | `/api/trade/orders` | GET | Load broker or mock orders | `backend/app/routes/trade.py` |
 
@@ -128,6 +129,26 @@ configured, otherwise mock portfolio data. The cycle applies council policy,
 portfolio risk controls, and candidate decisions. It does not submit a broker
 order automatically merely because a recommendation exists.
 
+### POST `/api/agent/run`
+
+Runs the existing council daily cycle as a recommendation-only agent workflow.
+It accepts the same optional `candidates`, `cash_override`, and
+`portfolio_state_overrides` values as the council cycle.
+
+The response includes:
+
+- `run_id`
+- `status`
+- `mode`
+- `recommendations`
+- `risk_summary`
+- flattened `reasoning_trace`
+- full `cycle` result
+- `orders_ready: false`
+
+This endpoint never calls order submission. A later, separately approved flow
+must call `/api/trade` after the user reviews the recommendation.
+
 ### POST `/api/trade`
 
 ```json
@@ -205,15 +226,14 @@ Credentials must never be committed or placed in documentation.
 
 ## 6. Current gaps
 
-1. No dedicated backend `agent/run` endpoint exists yet.
-2. Response models and error envelopes are not fully standardized.
-3. Alpaca retry/backoff and structured request logging are not complete.
-4. Duplicate order/idempotency protection needs review.
-5. CORS currently allows all origins for local development.
-6. Strategy PUT values are process-local without PostgreSQL persistence.
-7. Live Alpaca verification still requires a paper account and explicit
+1. Response models and error envelopes are not fully standardized.
+2. Alpaca retry/backoff and structured request logging are not complete.
+3. Duplicate order/idempotency protection needs review.
+4. CORS currently allows all origins for local development.
+5. Strategy PUT values are process-local without PostgreSQL persistence.
+6. Live Alpaca verification still requires a paper account and explicit
    authorization; no real order should be submitted during tests.
-8. Frontend order-history wiring remains outside the current backend-only scope.
+7. Frontend order-history wiring remains outside the current backend-only scope.
 
 ## 7. Verification checklist
 
