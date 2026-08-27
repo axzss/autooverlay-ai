@@ -67,6 +67,11 @@ required trading environment values are present.
 Live mode reads the Alpaca account and positions. Without credentials, bundled
 mock data is returned.
 
+If credentials are configured but Alpaca is unavailable or returns malformed
+data, the backend does not silently switch to mock mode. Trading endpoints
+return HTTP 502 with a safe error detail; screening may skip an unavailable
+market-data symbol.
+
 ### GET/POST `/api/strategy/screen`
 
 The screening route evaluates covered-call opportunities over eligible equity
@@ -177,6 +182,10 @@ Without Alpaca credentials:
 
 No broker request is made in mock mode. With credentials, the backend submits to
 the configured Alpaca paper-trading endpoint.
+
+Timeouts, connection failures, non-2xx responses, invalid JSON, and unexpected
+Alpaca response shapes are normalized by the client and surfaced as HTTP 502 by
+the trade/order routes.
 
 ### GET `/api/trade/orders`
 
