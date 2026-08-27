@@ -2,19 +2,21 @@
 
 ## Project purpose
 
-AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Agents Hackathon Track 04. The backend exposes portfolio, strategy-screening, configuration, and trade APIs for the Next.js frontend.
+AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Agents Hackathon Track 04. The backend exposes portfolio, strategy-screening, configuration, council, and trade APIs for the Next.js frontend.
 
 ## Current architecture
 
 - Framework: FastAPI
 - Python runtime: 3.11
 - Broker integration: Alpaca paper-trading and options-data REST APIs through `httpx`
-- Agent integration: `agent.decision_engine.DecisionEngine`
-- Persistence: none yet; the MVP is stateless
-- Strategy configuration: in-process singleton, optionally initialized from `STRATEGY_CONFIG_JSON`
-- Safe fallback: mock account, positions, candidates, and orders when Alpaca credentials are absent
+- Agent integration: `agent.decision_engine.DecisionEngine` and `agent.council`
+- Persistence: none; the MVP is stateless
+- Strategy configuration: in-process singleton, initialized from `STRATEGY_CONFIG_JSON` when provided
+- Safe fallback: mock account, positions, candidates, council assessments, and orders when Alpaca credentials are absent
 
 ## Main backend endpoints
+
+Canonical routes:
 
 - `GET /health` — backend status and Alpaca configuration status
 - `GET /portfolio` — account and positions
@@ -22,19 +24,23 @@ AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Ag
 - `POST /strategy/screen` — filtered covered-call screening
 - `GET /strategy/config` — active strategy parameters
 - `PUT /strategy/config` — validate and update strategy parameters
+- `GET /council/assess` — persona-based council assessment
+- `POST /council/assess` — filtered council assessment
+- `POST /council/cycle` — autonomous daily council cycle
 - `POST /trade` — validate and submit or simulate an order
 - `GET /trade/orders` — list live or mock orders
 
-Canonical routes use no prefix. Backend compatibility aliases are also exposed
-under `/api` for portfolio, strategy, and trade clients.
-
-Supported compatibility paths include:
+The same portfolio, strategy, council, and trade routes are also exposed under the `/api` compatibility prefix:
 
 - `/api/portfolio`
 - `/api/strategy/screen`
 - `/api/strategy/config`
+- `/api/council/assess`
+- `/api/council/cycle`
 - `/api/trade`
 - `/api/trade/orders`
+
+The `/api` paths are aliases using the same handlers and response contracts.
 
 ## Important behavior
 
@@ -42,18 +48,21 @@ Supported compatibility paths include:
 - Required trading variables are `ALPACA_KEY`, `ALPACA_SECRET`, and `ALPACA_BASE_URL`.
 - The correct Alpaca secret header is `APCA-API-SECRET-KEY`.
 - Option orders must use `day` time-in-force and valid OCC symbols.
+- Valid OCC symbols such as `AAPL240621C00175000` are accepted for covered-call/CSP order flows.
 - Invalid strategy configuration and trade payloads are rejected with HTTP 422.
-- Mock trade responses must clearly indicate that no broker order was submitted.
+- Non-finite values such as NaN/Infinity are sanitized in validation errors.
+- Mock trade responses clearly indicate that no broker order was submitted.
 - Never put Alpaca credentials in source code, tests, documentation, or commits.
 
-## Strategy flow
+## Strategy and council flow
 
 1. Load held US-equity positions.
 2. Retrieve option snapshots for each eligible underlying in live mode.
 3. Build covered-call candidates from option quotes and metadata.
 4. Apply open-interest and annualized-return filters.
-5. Enrich candidates with `DecisionEngine` risk score, action, rationale, and reasoning trace.
-6. Return normalized JSON for the frontend terminal and strategy views.
+5. Run council personas and calculate consensus, dissent, volatility tier, and policy.
+6. Enrich candidates with `DecisionEngine` risk score, action, rationale, and reasoning trace.
+7. Return normalized JSON for the frontend terminal and strategy views.
 
 Supported decision actions:
 
@@ -61,99 +70,100 @@ Supported decision actions:
 - `HOLD_POSITION`
 - `MONITOR_CLOSELY`
 
-## Testing
+## Changes completed
 
-Use the project virtual environment:
+### Strategy configuration startup
+
+- Changed strategy route initialization from `StrategyConfig()` to `StrategyConfig.from_env()`.
+- Backend now reads `STRATEGY_CONFIG_JSON` at startup.
+- Added a regression test proving environment overrides appear through `GET /strategy/config`.
+
+### API compatibility
+
+- Added backend-only `/api` aliases without changing frontend files.
+- Registered portfolio, strategy, council, and trade routers at canonical paths and under `/api`.
+- Added tests for alias status codes and canonical/alias response parity.
+
+### Council and security integration
+
+- Integrated the council assessment and daily-cycle routes from the merged PR.
+- Preserved NaN/Infinity validation hardening and request validation handling.
+- Added security regression coverage for malformed symbols, quantities, prices, strategy values, and screening inputs.
+
+### OCC option order validation
+
+- Fixed order validation so a valid OCC option symbol is parsed before the shorter equity ticker rule.
+- Option orders continue to require `day` time-in-force and bounded limit prices.
+- Added a regression test for a valid mock covered-call option order.
+
+### Documentation and delivery
+
+- Added `specials/BACKEND_FRONTEND_API.md` with endpoint contracts, frontend consumers, data flow, mock/live behavior, known gaps, and verification steps.
+- This file records backend-specific implementation status and remaining work.
+- No frontend files were modified during the API alias or OCC validation changes.
+
+## Verification status
+
+The latest local verification used the project virtual environment:
 
 ```bash
 source .venv/Scripts/activate
 python -m pytest backend/tests agent/tests -q
 ```
 
-Tests must not contact Alpaca or depend on real credentials. Current verification baseline after the latest changes: `109 passed, 1 skipped` with one Starlette/httpx deprecation warning.
+Latest result after council integration and OCC validation:
 
-## Frontend integration notes
+```text
+208 passed, 1 skipped, 1 warning
+```
 
-- Shared frontend API calls are in `frontend/lib/api.ts` and use `NEXT_PUBLIC_API_BASE_URL`.
-- `StrategyConfigCard.tsx` currently calls `/api/strategy/config` directly; the backend now supports this compatibility alias, although the shared API client remains preferable for consistency.
-- `/portfolio` returns account and positions, while `/trade/orders` returns orders. The frontend portfolio type currently declares orders inside the portfolio snapshot, so this contract should be aligned later.
-- `AgentControl.tsx` currently has a Run Agent button without a dedicated backend execution endpoint.
-
-## Changes completed
-
-### Strategy configuration startup
-
-- Changed strategy route initialization from `StrategyConfig()` to
-  `StrategyConfig.from_env()`.
-- Backend now reads `STRATEGY_CONFIG_JSON` at startup.
-- Added a regression test proving environment overrides appear through
-  `GET /strategy/config`.
-
-### Frontend/API compatibility
-
-- Added backend-only `/api` aliases without changing frontend files.
-- Registered portfolio, strategy, and trade routers both at canonical paths and
-  under the `/api` prefix.
-- `/api/strategy/config` returns the same contract as `/strategy/config`.
-- `/api/trade` still validates bad payloads before any broker call.
-- Added route tests for `/api/portfolio`, `/api/trade`, and
-  `/api/trade/orders`.
-
-### Documentation
-
-- Added `specials/BACKEND_FRONTEND_API.md` with endpoint contracts, frontend
-  consumers, data flow, mock/live behavior, known gaps, and verification steps.
-- Added this `backend/MEMORY.md` as the backend-specific project memory.
-
-### Verification and delivery
-
-- Created and ran focused `hermes-verify-` scripts for the changed API behavior.
-- Verified API status codes and canonical/alias strategy-config parity.
-- Ran the complete backend and agent test suite successfully.
-- Latest commit for API aliases: `8b93d40 fix(backend): expose api compatibility routes`.
-- No frontend files were modified by the alias change.
+The warning is a non-blocking Starlette/httpx deprecation warning. Python compilation also passed with `python -m compileall -q backend agent`.
 
 ## Not finished / remaining work
 
 ### Backend/API integration
 
-1. Add a typed frontend orders method and connect order history to
-   `/trade/orders` when frontend work is allowed.
-2. Decide and implement an explicit backend agent-run endpoint. The current
-   `AgentControl` button has no execution endpoint behind it.
-3. Add response models and consistent structured error responses.
-4. Add request correlation IDs and structured logging.
-5. Add safe retry/backoff policy for transient Alpaca failures.
-6. Review order idempotency and duplicate-submission protection.
-7. Restrict CORS for deployment instead of allowing every origin.
-8. Add a readiness check separate from the basic `/health` endpoint if needed.
+1. Add an explicit backend agent-run endpoint. The current `AgentControl` button has no execution endpoint behind it.
+2. Add response models and consistent structured error responses.
+3. Add request correlation IDs and structured logging.
+4. Add safe retry/backoff policy for transient Alpaca failures.
+5. Review order idempotency and duplicate-submission protection.
+6. Restrict CORS for deployment instead of allowing every origin.
+7. Add a readiness check separate from the basic `/health` endpoint if needed.
+
+### Frontend/API integration
+
+8. Add a typed frontend orders method and connect order history to `/trade/orders` when frontend work is allowed.
+9. Keep the frontend portfolio/order response contract aligned with the backend when frontend work is allowed.
 
 ### Persistence
 
-9. PostgreSQL is not implemented and is not required for the current stateless
-   MVP. Add it only when persistent strategy configuration, recommendations,
-   screening history, council reports, risk events, or audit logs are required.
-10. If persistence is added, keep Alpaca as the source of truth for live account,
-    positions, and broker orders; PostgreSQL should store application history and
-    audit data.
+10. PostgreSQL is not implemented and is not required for the current stateless MVP. Add it only when persistent strategy configuration, recommendations, screening history, council reports, risk events, or audit logs are required.
+11. If persistence is added, keep Alpaca as the source of truth for live account, positions, and broker orders; PostgreSQL should store application history and audit data.
 
 ### Live verification
 
-11. Live Alpaca API verification has not been performed in this work because no
-    credentials were required. It must use a paper account and local environment
-    variables only.
+12. Live Alpaca API verification has not been performed because no credentials were required. It must use a paper account and local environment variables only. No paper order should be submitted without explicit authorization.
 
-### Known non-blocking warning
+### Known warning
 
-12. The test suite still reports a Starlette/httpx deprecation warning. It does
-    not currently fail tests, but dependency compatibility should be reviewed
-    later.
+13. The test suite still reports a Starlette/httpx deprecation warning. It does not currently fail tests, but dependency compatibility should be reviewed later.
 
 ## Change discipline
 
 - Read and trace existing code before editing.
-- Use tests for behavior changes.
+- Use tests for behavior changes and verify RED before implementation when practical.
 - Run focused tests and the full backend/agent suite after changes.
 - Stage only intended files.
 - Do not commit secrets, generated files, or scratch artifacts.
 - Do not submit paper orders during tests.
+- Keep frontend changes out of backend-only work.
+- Push only after tests and compilation are green.
+
+## Recent commits
+
+- `23c9531 fix(backend): accept valid OCC option symbols`
+- `dba0a04 fix(backend): expose council api aliases`
+- `75f3352 Merge branch 'master' into master`
+- `34aecde docs(backend): record implementation status`
+- `8b93d40 fix(backend): expose api compatibility routes`
