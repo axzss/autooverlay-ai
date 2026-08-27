@@ -30,7 +30,7 @@ router = APIRouter()
 from agent.config import StrategyConfig  # noqa: E402
 from agent.decision_engine import DecisionEngine  # noqa: E402
 
-_active_config = StrategyConfig()
+_active_config = StrategyConfig.from_env()
 
 
 class StrategyConfigModel(BaseModel):
