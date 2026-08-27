@@ -16,7 +16,7 @@ class TestScreenEnrichment:
             monkeypatch.delenv(var, raising=False)
 
     def test_mock_get_enriched_shape(self, client):
-        resp = client.get("/strategy/screen")
+        resp = client.get("/api/strategy/screen")
         assert resp.status_code == 200
         body = resp.json()
         assert body["mode"] == "mock"
@@ -38,7 +38,7 @@ class TestScreenEnrichment:
             assert key in sample
 
     def test_mock_post_enriched(self, client):
-        resp = client.post("/strategy/screen", json={"top_n": 2})
+        resp = client.post("/api/strategy/screen", json={"top_n": 2})
         assert resp.status_code == 200
         body = resp.json()
         assert len(body["candidates"]) <= 2
@@ -46,7 +46,7 @@ class TestScreenEnrichment:
         assert "reasoning_trace" in body["candidates"][0]
 
     def test_full_false_skips_engine(self, client):
-        resp = client.get("/strategy/screen?full=false")
+        resp = client.get("/api/strategy/screen?full=false")
         assert resp.status_code == 200
         body = resp.json()
         assert "portfolio_context" not in body
@@ -56,6 +56,6 @@ class TestScreenEnrichment:
         # Simulate zero-credential environment: route must stay on mock data.
         monkeypatch.delenv("APCA_API_KEY_ID", raising=False)
         monkeypatch.delenv("APCA_API_SECRET_KEY", raising=False)
-        resp = client.get("/strategy/screen")
+        resp = client.get("/api/strategy/screen")
         assert resp.status_code == 200
         assert resp.json()["mode"] == "mock"

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .routes.council import router as council_router
+from .routes.agent import router as agent_router
 from .routes.portfolio import router as portfolio_router
 from .routes.strategy import router as strategy_router
 from .routes.trade import router as trade_router
@@ -24,14 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(portfolio_router, tags=["portfolio"])
-app.include_router(trade_router, tags=["trading"])
-app.include_router(strategy_router, tags=["strategy"])
-# Compatibility aliases for frontend clients that use the conventional /api prefix.
+# All application routes use the /api prefix as the single public API contract.
 app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
 app.include_router(trade_router, prefix="/api", tags=["trading"])
 app.include_router(strategy_router, prefix="/api", tags=["strategy"])
-app.include_router(council_router, tags=["council"])
+app.include_router(council_router, prefix="/api", tags=["council"])
+app.include_router(agent_router, prefix="/api", tags=["agent"])
 
 
 def _sanitize(obj):

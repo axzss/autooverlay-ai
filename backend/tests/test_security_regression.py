@@ -31,16 +31,16 @@ class TestStrategyConfigInjection:
 
         body = _json.dumps(_cfg()).replace("0.6", "NaN")
         r = client.put(
-            "/strategy/config",
+            "/api/strategy/config",
             content=body,
             headers={"content-type": "application/json"},
         )
         assert r.status_code == 422
         # active config must be unchanged
-        assert client.get("/strategy/config").json()["config"]["take_profit_pct"] == 0.6
+        assert client.get("/api/strategy/config").json()["config"]["take_profit_pct"] == 0.6
 
     def test_infinite_stop_loss_rejected(self, client: TestClient):
-        r = client.put("/strategy/config", json=_cfg(stop_loss_mult=1e308))
+        r = client.put("/api/strategy/config", json=_cfg(stop_loss_mult=1e308))
         assert r.status_code == 422
 
     def test_raw_nan_body_rejected(self, client: TestClient):
@@ -48,27 +48,27 @@ class TestStrategyConfigInjection:
 
         body = _json.dumps(_cfg()).replace("0.6", "NaN")
         r = client.put(
-            "/strategy/config",
+            "/api/strategy/config",
             content=body,
             headers={"content-type": "application/json"},
         )
         assert r.status_code == 422
 
     def test_zero_take_profit_still_rejected(self, client: TestClient):
-        assert client.put("/strategy/config", json=_cfg(take_profit_pct=0.0)).status_code == 422
+        assert client.put("/api/strategy/config", json=_cfg(take_profit_pct=0.0)).status_code == 422
 
 
 class TestTradeAbuse:
     def _post(self, client, **over):
         body = {"symbol": "AAPL", "qty": 1, "side": "buy"}
         body.update(over)
-        return client.post("/trade", json=body)
+        return client.post("/api/trade", json=body)
 
     def test_nan_qty_is_422_not_500(self, client: TestClient):
         import json as _json
 
         r = client.post(
-            "/trade",
+            "/api/trade",
             content='{"symbol":"AAPL","qty":NaN,"side":"buy"}',
             headers={"content-type": "application/json"},
         )
@@ -78,7 +78,7 @@ class TestTradeAbuse:
         import json as _json
 
         r = client.post(
-            "/trade",
+            "/api/trade",
             content='{"symbol":"AAPL","qty":1,"side":"buy","type":"limit","limit_price":Infinity}',
             headers={"content-type": "application/json"},
         )
@@ -108,22 +108,22 @@ class TestTradeAbuse:
 
 class TestScreenAbuse:
     def test_get_top_n_negative_is_422_not_500(self, client: TestClient):
-        assert client.get("/strategy/screen?top_n=-1").status_code == 422
+        assert client.get("/api/strategy/screen?top_n=-1").status_code == 422
 
     def test_get_top_n_huge_is_422_not_500(self, client: TestClient):
-        assert client.get("/strategy/screen?top_n=1000000000").status_code == 422
+        assert client.get("/api/strategy/screen?top_n=1000000000").status_code == 422
 
     def test_get_negative_open_interest_is_422_not_500(self, client: TestClient):
-        assert client.get("/strategy/screen?min_open_interest=-5").status_code == 422
+        assert client.get("/api/strategy/screen?min_open_interest=-5").status_code == 422
 
     def test_symbols_list_length_capped(self, client: TestClient):
-        r = client.post("/strategy/screen", json={"symbols": ["AAPL"] * 10_000})
+        r = client.post("/api/strategy/screen", json={"symbols": ["AAPL"] * 10_000})
         assert r.status_code == 422
 
     def test_null_byte_symbol_rejected(self, client: TestClient):
-        r = client.post("/strategy/screen", json={"symbols": ["AA\x00PL"]})
+        r = client.post("/api/strategy/screen", json={"symbols": ["AA\x00PL"]})
         assert r.status_code == 422
 
     def test_full_false_still_works(self, client: TestClient):
-        r = client.get("/strategy/screen?full=false")
+        r = client.get("/api/strategy/screen?full=false")
         assert r.status_code == 200
