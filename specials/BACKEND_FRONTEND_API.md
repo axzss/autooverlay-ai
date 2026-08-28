@@ -265,6 +265,7 @@ Credentials must never be committed or placed in documentation.
 - Valid OCC option mock order returns 200 with `submitted: false`.
 - Council assess and cycle routes return valid mock responses.
 - Full backend/agent tests pass.
+- Council-cycle chaos tests cover Alpaca rate-limit, timeout, and mid-flight failure paths.
 - Live tests use Alpaca paper trading only.
 
 ## 8. Source of truth
