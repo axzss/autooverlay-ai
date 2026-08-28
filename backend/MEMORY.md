@@ -108,7 +108,7 @@ python -m pytest backend/tests agent/tests -q
 Latest result after Alpaca hardening, overlay wiring, order intents, live-error surfacing, and CORS config:
 
 ```text
-233 passed, 1 skipped, 1 warning
+236 passed, 1 skipped, 1 warning
 ```
 
 The warning is a non-blocking Starlette/httpx deprecation warning. Python compilation also passed with `python -m compileall -q backend agent`.
@@ -120,7 +120,8 @@ The warning is a non-blocking Starlette/httpx deprecation warning. Python compil
 17. Added approval-gated `order_intents` to `POST /api/agent/run` from `INITIATE` directives. `orders_ready` remains `false`; this endpoint still never submits broker orders.
 18. Live `POST /api/council/cycle` now passes normalized short option positions into `run_daily_cycle()`, so `EXIT`/`ROLL` directives can use real Alpaca overlay state instead of only mock data.
 19. Live `GET /api/strategy/screen` now returns `mode: "live"` with optional `live_error` instead of silently falling back to mock data when credentials exist but Alpaca data fails.
-20. Added regression coverage for Alpaca client failures, option-position normalization, council-cycle overlay wiring, order-intent generation, and live strategy error surfacing.
+- Added regression coverage for Alpaca client failures, option-position normalization, council-cycle overlay wiring, order-intent generation, live strategy error surfacing, and council-cycle chaos/timeout behavior.
+- Added `backend/tests/test_council_chaos.py` with rate-limit/timeout/mid-flight failure coverage for `/api/council/cycle`.
 
 ## Not finished / remaining work
 
