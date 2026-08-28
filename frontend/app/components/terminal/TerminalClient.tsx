@@ -1,15 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, RefreshCw, Zap, AlertTriangle } from 'lucide-react'
+import { Loader2, RefreshCw, Zap, AlertTriangle, ClipboardList } from 'lucide-react'
 import {
   api,
   normalizeScreenings,
   toFeedEntry,
   type AgentRecommendation,
+  type AgentRunResponse,
   type CycleResponse,
   type DailyDirective,
   type FeedEntry,
+  type OrderIntent,
   type PortfolioContext,
 } from '../../../lib/api'
 import AgentFeedCard from './AgentFeedCard'
@@ -35,6 +37,7 @@ export default function TerminalClient() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [liveError, setLiveError] = useState<string | null>(null)
   const [lastRun, setLastRun] = useState<string | null>(null)
 
   // Daily Cycle state
@@ -44,6 +47,11 @@ export default function TerminalClient() {
   const [lastCycleRun, setLastCycleRun] = useState<string | null>(null)
   const [halted, setHalted] = useState(false)
   const [expandedDirectives, setExpandedDirectives] = useState<Set<number>>(new Set())
+
+  // Agent Run (order intent preview) state
+  const [agentRun, setAgentRun] = useState<AgentRunResponse | null>(null)
+  const [agentRunning, setAgentRunning] = useState(false)
+  const [agentError, setAgentError] = useState<string | null>(null)
 
   const runCycle = useCallback(async (isInitial: boolean) => {
     if (isInitial) setLoading(true)
@@ -55,10 +63,12 @@ export default function TerminalClient() {
       setEntries(norm.entries.map(toFeedEntry))
       if (norm.portfolioContext) setPortfolioContext(norm.portfolioContext)
       setMode(norm.mode)
+      setLiveError(norm.liveError)
       setLastRun(new Date().toLocaleTimeString())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Agent cycle failed')
       setEntries([])
+      setLiveError(null)
     } finally {
       setLoading(false)
       setRunning(false)
@@ -88,6 +98,20 @@ export default function TerminalClient() {
       else next.add(idx)
       return next
     })
+  }, [])
+
+  const runAgent = useCallback(async () => {
+    setAgentRunning(true)
+    setAgentError(null)
+    try {
+      const res = await api.runAgent()
+      setAgentRun(res)
+    } catch (err) {
+      setAgentError(err instanceof Error ? err.message : 'Agent run failed')
+      setAgentRun(null)
+    } finally {
+      setAgentRunning(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -128,6 +152,16 @@ export default function TerminalClient() {
             <AlertTriangle className="h-4 w-4 shrink-0" />
             {error} — press “Run agent cycle” to retry.
           </p>
+        )}
+
+        {liveError && (
+          <div className="flex items-start gap-2 rounded border border-[#b45309]/40 bg-[#451a03] px-3 py-2 text-sm text-[#fbbf24]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Live market data failed — showing fallback data.{' '}
+              <span className="font-mono text-xs text-[#fcd34d] break-words">{liveError}</span>
+            </span>
+          </div>
         )}
 
         {loading ? (
@@ -294,6 +328,158 @@ export default function TerminalClient() {
           </div>
         </div>
         {/* ── end Daily Cycle panel ─────────────────────────────────── */}
+
+        {/* ── Agent Run — order intent preview ──────────────────────── */}
+        <div className="rounded border border-[#1e293b] bg-[#0f172a] p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#94a3b8]">
+                Agent Run — order preview
+              </h2>
+              {agentRun && (
+                <span className="rounded border border-[#334155] bg-[#020617] px-1.5 py-0.5 text-[9px] uppercase text-[#94a3b8]">
+                  {agentRun.mode}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {agentRun?.completed_at && (
+                <span className="text-[10px] text-[#64748b]">
+                  {new Date(agentRun.completed_at).toLocaleTimeString()}
+                </span>
+              )}
+              <button
+                onClick={runAgent}
+                disabled={agentRunning}
+                className="inline-flex items-center gap-2 rounded border border-[#22c55e]/50 bg-[#0f172a] px-3 py-1.5 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10 transition-colors disabled:opacity-50"
+              >
+                {agentRunning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ClipboardList className="h-3.5 w-3.5" />
+                )}
+                {agentRunning ? 'Running…' : 'Run agent (preview)'}
+              </button>
+            </div>
+          </div>
+
+          <p className="text-[11px] text-[#64748b]">
+            Preview only — nothing is sent to the broker. Every intent needs explicit approval
+            before it becomes an order.
+          </p>
+
+          {agentError && (
+            <p className="flex items-center gap-2 rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-xs text-[#f87171]">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              {agentError}
+            </p>
+          )}
+
+          {agentRun?.risk_summary?.halted && (
+            <p className="flex items-center gap-2 rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-xs text-[#f87171]">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Kill-switch HALT — no order intents generated
+              {agentRun.risk_summary.kill_switch?.reasons?.length
+                ? `: ${agentRun.risk_summary.kill_switch.reasons.join('; ')}`
+                : ''}
+            </p>
+          )}
+
+          {agentRun && !agentRunning && (
+            <div className="flex flex-wrap gap-2 text-[10px]">
+              <span className="rounded border border-[#334155] bg-[#020617] px-2 py-0.5 text-[#94a3b8]">
+                {agentRun.recommendations?.length ?? 0} directives
+              </span>
+              <span className="rounded border border-[#334155] bg-[#020617] px-2 py-0.5 text-[#94a3b8]">
+                {agentRun.order_intents?.length ?? 0} intents
+              </span>
+              <span
+                className={`rounded border px-2 py-0.5 ${
+                  agentRun.orders_ready
+                    ? 'border-[#22c55e]/50 bg-[#052e16] text-[#22c55e]'
+                    : 'border-[#64748b]/50 bg-[#1e293b] text-[#94a3b8]'
+                }`}
+              >
+                {agentRun.orders_ready ? 'orders ready' : 'not submitted'}
+              </span>
+              {typeof agentRun.risk_summary?.blocked_entries === 'number' &&
+                agentRun.risk_summary.blocked_entries > 0 && (
+                  <span className="rounded border border-[#f59e0b]/50 bg-[#451a03] px-2 py-0.5 text-[#fbbf24]">
+                    {agentRun.risk_summary.blocked_entries} blocked
+                  </span>
+                )}
+            </div>
+          )}
+
+          {agentRun && (agentRun.order_intents?.length ?? 0) === 0 && !agentError && (
+            <p className="text-xs text-[#64748b] text-center py-3">
+              No order intents — the cycle produced no INITIATE directives.
+            </p>
+          )}
+
+          {!agentRun && !agentError && !agentRunning && (
+            <p className="text-xs text-[#64748b] text-center py-3">
+              Run the agent to preview the orders it would place.
+            </p>
+          )}
+
+          {(agentRun?.order_intents?.length ?? 0) > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#1e293b] text-[10px] uppercase tracking-wider text-[#64748b]">
+                    <th className="px-2 py-1.5 font-medium">Symbol</th>
+                    <th className="px-2 py-1.5 font-medium">Action</th>
+                    <th className="px-2 py-1.5 font-medium">Strategy</th>
+                    <th className="px-2 py-1.5 font-medium">Contract</th>
+                    <th className="px-2 py-1.5 font-medium text-right">Qty</th>
+                    <th className="px-2 py-1.5 font-medium">Type</th>
+                    <th className="px-2 py-1.5 font-medium text-right">Limit</th>
+                    <th className="px-2 py-1.5 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(agentRun?.order_intents ?? []).map((intent: OrderIntent, ii: number) => (
+                    <tr
+                      key={`${intent.symbol}-${intent.option_symbol ?? ii}-${ii}`}
+                      className="border-b border-[#1e293b]/60 last:border-0"
+                    >
+                      <td className="px-2 py-2 font-medium text-white">{intent.symbol}</td>
+                      <td className="px-2 py-2">
+                        <span className="rounded border border-[#22c55e]/50 bg-[#052e16] px-1.5 py-0.5 text-[10px] font-semibold text-[#22c55e]">
+                          {intent.action}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-[#94a3b8]">{intent.strategy}</td>
+                      <td className="px-2 py-2 font-mono text-[10px] text-[#94a3b8]">
+                        {intent.option_symbol ?? '—'}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums text-[#e2e8f0]">
+                        {intent.contracts}
+                      </td>
+                      <td className="px-2 py-2 uppercase text-[#94a3b8]">{intent.type}</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-[#e2e8f0]">
+                        {typeof intent.limit_price === 'number'
+                          ? intent.limit_price.toFixed(2)
+                          : '—'}
+                      </td>
+                      <td className="px-2 py-2">
+                        <span className="rounded border border-[#f59e0b]/50 bg-[#451a03] px-1.5 py-0.5 text-[10px] text-[#fbbf24]">
+                          {intent.submitted
+                            ? 'submitted'
+                            : intent.requires_approval
+                              ? 'needs approval'
+                              : 'pending'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        {/* ── end Agent Run panel ───────────────────────────────────── */}
       </main>
     </div>
   )

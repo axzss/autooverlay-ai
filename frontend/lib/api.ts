@@ -143,23 +143,132 @@ export interface CycleResponse {
   [key: string]: unknown
 }
 
+/**
+ * One prepared-but-unsubmitted order from POST /api/agent/run.
+ * Field names mirror backend/app/routes/agent.py::_order_intents exactly.
+ */
+export interface OrderIntent {
+  action: string
+  strategy: string
+  symbol: string
+  option_symbol: string | null
+  contracts: number
+  qty: number
+  side: string
+  type: string
+  time_in_force: string
+  limit_price: number | null
+  requires_approval: boolean
+  submitted: boolean
+  [key: string]: unknown
+}
+
+export interface AgentRiskSummary {
+  halted?: boolean
+  kill_switch?: { halted?: boolean; reasons?: string[] }
+  portfolio_state?: Record<string, unknown>
+  blocked_entries?: number
+  [key: string]: unknown
+}
+
+/**
+ * POST /api/agent/run. Note: `recommendations` are council *directives*
+ * (action/symbol/params/priority/reasoning_trace/provenance), not the
+ * screening-shaped AgentRecommendation used by /strategy/screen.
+ */
+export interface AgentRunResponse {
+  run_id: string
+  status: string
+  mode: string
+  orders_ready: boolean
+  order_intents: OrderIntent[]
+  recommendations: DailyDirective[]
+  risk_summary: AgentRiskSummary
+  reasoning_trace: string[]
+  cycle?: CycleResponse
+  completed_at?: string
+  [key: string]: unknown
+}
+
+export interface CouncilVerdict {
+  persona: string
+  score: number
+  stance: string
+  bullets: string[]
+}
+
+export interface CouncilDissent {
+  persona: string
+  direction?: string
+  score?: number
+  consensus?: number
+  /** Backend emits a list of rationale lines, not a single string. */
+  why?: string[]
+  [key: string]: unknown
+}
+
+export interface CouncilTierPolicy {
+  delta_min: number
+  delta_max: number
+  max_dte: number
+  allowed_strategies: string[]
+  size_multiplier: number
+}
+
+export interface CouncilAssessment {
+  symbol: string
+  tier: string
+  tier_policy_summary: string
+  tier_policy: CouncilTierPolicy
+  consensus_score: number
+  recommendation: string
+  majority_stance: string
+  is_split: boolean
+  verdicts: CouncilVerdict[]
+  dissent: CouncilDissent[]
+}
+
+export interface CouncilAssessResponse {
+  mode: string
+  count: number
+  assessments: CouncilAssessment[]
+}
+
 export const api = {
-  getPortfolio: () => request<PortfolioSnapshot>('/portfolio'),
+  getPortfolio: () => request<PortfolioSnapshot>('/api/portfolio'),
+  // /health is the one route mounted bare — every router sits under /api.
   getHealth: () => request<HealthResponse>('/health'),
   screenStrategies: () =>
     request<
       | StrategyOpportunity[]
       | { opportunities: StrategyOpportunity[] }
       | { candidates: AgentRecommendation[] }
-      | { ranked_recommendations: AgentRecommendation[]; portfolio_context?: PortfolioContext; mode?: string }
-    >('/strategy/screen'),
+      | {
+          ranked_recommendations: AgentRecommendation[]
+          portfolio_context?: PortfolioContext
+          mode?: string
+          live_error?: string
+        }
+    >('/api/strategy/screen'),
   runDailyCycle: (body?: { candidates?: string[]; cash_override?: number }) =>
-    request<CycleResponse>('/council/cycle', {
+    request<CycleResponse>('/api/council/cycle', {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
+  runAgent: (body?: { candidates?: string[]; cash_override?: number }) =>
+    request<AgentRunResponse>('/api/agent/run', {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+    }),
+  assessCouncil: (symbols?: string[]) =>
+    symbols && symbols.length > 0
+      ? request<CouncilAssessResponse>('/api/council/assess', {
+          method: 'POST',
+          body: JSON.stringify({ symbols }),
+        })
+      : request<CouncilAssessResponse>('/api/council/assess'),
   placeTrade: (body: TradeRequest) =>
-    request<TradeResponse>('/trade', {
+    request<TradeResponse>('/api/trade', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -178,10 +287,20 @@ export function normalizeScreenings(
     | StrategyOpportunity[]
     | { opportunities: StrategyOpportunity[] }
     | { candidates?: AgentRecommendation[] }
-    | { ranked_recommendations?: AgentRecommendation[]; portfolio_context?: PortfolioContext; mode?: string },
-): { entries: AgentRecommendation[]; portfolioContext: PortfolioContext | null; mode: string | null } {
+    | {
+        ranked_recommendations?: AgentRecommendation[]
+        portfolio_context?: PortfolioContext
+        mode?: string
+        live_error?: string
+      },
+): {
+  entries: AgentRecommendation[]
+  portfolioContext: PortfolioContext | null
+  mode: string | null
+  liveError: string | null
+} {
   if (Array.isArray(data)) {
-    return { entries: data as AgentRecommendation[], portfolioContext: null, mode: null }
+    return { entries: data as AgentRecommendation[], portfolioContext: null, mode: null, liveError: null }
   }
   const wrapped = data as Record<string, unknown>
   let entries: AgentRecommendation[] = []
@@ -190,7 +309,8 @@ export function normalizeScreenings(
   else if (Array.isArray(wrapped.ranked_recommendations))
     entries = wrapped.ranked_recommendations as AgentRecommendation[]
   const ctx = (wrapped as { portfolio_context?: PortfolioContext }).portfolio_context ?? null
-  return { entries, portfolioContext: ctx, mode: (wrapped.mode as string) ?? null }
+  const liveError = typeof wrapped.live_error === 'string' ? wrapped.live_error : null
+  return { entries, portfolioContext: ctx, mode: (wrapped.mode as string) ?? null, liveError }
 }
 
 /** Maps a risk score to its Tailwind badge classes: green <=40, amber <=70, red >70. */

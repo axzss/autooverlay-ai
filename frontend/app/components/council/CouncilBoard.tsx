@@ -3,37 +3,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ChevronDown, Gavel, RefreshCw, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  api,
+  type CouncilAssessResponse,
+  type CouncilAssessment,
+  type CouncilVerdict as PersonaVerdict,
+} from '../../../lib/api'
 
-interface PersonaVerdict {
-  persona: string
-  score: number
-  stance: string
-  bullets: string[]
-}
-
-interface CouncilAssessment {
-  symbol: string
-  tier: 'LOW' | 'MID' | 'HIGH' | string
-  tier_policy_summary: string
-  consensus_score: number
-  recommendation: string
-  majority_stance?: string
-  is_split?: boolean
-  verdicts: PersonaVerdict[]
-  dissent: {
-    persona: string
-    direction: string
-    score: number
-    consensus: number
-    why: string[]
-  }[]
-}
-
-interface CouncilResponse {
-  mode: 'live' | 'mock' | 'error' | string
-  count?: number
-  assessments: CouncilAssessment[]
-}
+type CouncilResponse = CouncilAssessResponse
 
 const TIER_STYLES: Record<string, string> = {
   LOW: 'border-[#22c55e]/50 bg-[#052e16] text-[#22c55e]',
@@ -65,7 +42,7 @@ function stanceChip(stance: string) {
   return 'border-[#ef4444]/40 bg-[#450a0a] text-[#f87171]'
 }
 
-const MOCK_SNAPSHOT: CouncilResponse = { mode: 'mock', assessments: [] }
+const MOCK_SNAPSHOT: CouncilResponse = { mode: 'mock', count: 0, assessments: [] }
 
 export default function CouncilBoard() {
   const [data, setData] = useState<CouncilResponse | null>(null)
@@ -77,9 +54,7 @@ export default function CouncilBoard() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/council/assess')
-      if (!res.ok) throw new Error(`Council session failed (${res.status})`)
-      const json: CouncilResponse = await res.json()
+      const json = await api.assessCouncil()
       setData(json)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Backend unavailable')
@@ -206,8 +181,8 @@ export default function CouncilBoard() {
                       >
                         <span className="font-semibold">⚠ {d.persona}</span>{' '}
                         <span className="opacity-80">
-                          {d.direction} ({Math.round(d.score)} vs cons.{' '}
-                          {Math.round(d.consensus)})
+                          {d.direction} ({Math.round(d.score ?? 0)} vs cons.{' '}
+                          {Math.round(d.consensus ?? 0)})
                         </span>
                         <ul className="mt-1 list-disc pl-4 opacity-90">
                           {(d.why ?? []).slice(0, 2).map((w, j) => (
