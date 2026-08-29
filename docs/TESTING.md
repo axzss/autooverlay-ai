@@ -117,8 +117,10 @@ Being specific here is more useful than a coverage percentage.
 | **No load or concurrency test** | Behaviour under parallel cycle requests is unknown |
 | **No real assignment path** | Assignment risk is reasoned about, never exercised |
 | **Frontend has no unit tests** | Type check + build only. `normalizeScreenings`, `toFeedEntry`, `riskBadgeClasses` are untested |
-| **`premium <= 0` in exit_manager** | Would divide by zero; no test, no guard |
-| **Kill-switch persistence** | The consecutive-stop-loss counter is recomputed per cycle; a restart resets it silently and no test covers that |
+| **`premium <= 0` in exit_manager** | ~~Would divide by zero; no test, no guard~~ — **guard exists** at `exit_manager.py:102`, verified 29 Aug. Still no test asserting it |
+| **Kill-switch persistence** | The consecutive-stop-loss counter is now produced within a cycle (`_consecutive_stop_losses`) and covered by two tests, but does **not** accumulate across cycles. Needs the W1 `exit_event` ledger |
+| **Fixtures drifting from production payload shape** | The lesson from finding A3: `test_drawdown_breach_halts` passed for eighteen days because its fixture omitted `market_value`, so test and production took **opposite branches** of the drawdown control. Any fixture missing a field the broker always sends is testing dead code |
+
 
 ---
 

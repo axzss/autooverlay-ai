@@ -151,7 +151,10 @@ assignment. Untested path.
   manual, dashboard-side. Scrubbing history does not un-leak a key.
 - Archive or delete `axzss/alpaca-overlay-agent-a2z`.
 - Investigate the one permanently skipped test.
-- Add `premium <= 0` guard in `exit_manager.py`.
+- ~~Add `premium <= 0` guard in `exit_manager.py`~~ — **already guarded** at
+  `exit_manager.py:102`; the claim was verified false on 29 Aug. See
+  `KNOWN-ISSUES.md` #9.
+
 
 ---
 

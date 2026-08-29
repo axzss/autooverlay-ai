@@ -18,6 +18,17 @@ the Settings UI or via `PUT /api/strategy/config`.
 | Single-day loss | > 2% | `kill_max_single_day_loss_pct` |
 | Consecutive stop-losses | ≥ 3 | `kill_consecutive_stop_losses` |
 
+The consecutive-stop-loss count is produced by `_consecutive_stop_losses()` in
+`daily_cycle.py` from this cycle's exit decisions, and the kill-switch is
+**re-checked after exit evaluation** so a run of stops halts new entries in the
+same cycle that produced them. A caller-supplied override still wins.
+
+Scope limit, stated plainly: that count is **within-cycle only**. Three
+stop-losses spread across three cycles do not accumulate until the W1
+`exit_event` ledger lands — see `KNOWN-ISSUES.md` #11. Before 29 Aug nothing
+computed this signal at all and the trigger was unreachable in production.
+
+
 ### It is checked first, and that is the design
 
 In `daily_cycle.py`, the kill-switch is **step 1 of 7**. If it fires, the function
@@ -39,18 +50,30 @@ Tested in `agent/tests/test_daily_cycle.py`.
 
 ### `overlay_only_drawdown` — a deliberate loosening
 
-Default `True`. Drawdown is measured from **overlay positions' collateral/market
-value**, not whole-portfolio NAV, falling back to full NAV when no overlay
-collateral exists.
+Default `True`. Drawdown is measured from **short-option overlay collateral**
+against `portfolio_state["overlay_peak_equity"]`, falling back to full NAV when
+no overlay exposure or no overlay peak is available.
 
 Reason: a $500k equity portfolio having a normal −6% week would trip a 5% halt
 that has nothing to do with the options overlay. The overlay might be performing
 perfectly.
 
 **Stated honestly:** this makes the kill-switch *less* sensitive than a whole-NAV
-reading. Set it to `False` for the stricter interpretation. Changing a safety
-control's sensitivity deserves to be visible, so it is documented here rather
-than buried.
+reading. Set `overlay_only_drawdown = False` for the stricter interpretation.
+
+Every fallback is visible, not silent. The result carries:
+
+- `drawdown_basis` — `"overlay"` or `"nav"`, so you can always tell which was used
+- `notes` — why, e.g. `"overlay exposure present but overlay_peak_equity missing
+  — drawdown measured against full NAV instead"`
+
+**This was broken until 29 Aug**, in three compounding ways: overlay equity was
+compared against *itself* so the ratio was always `0.0`; the position list was
+never filtered, so long stock counted as overlay collateral on every live
+account; and `False` could not be set because the config reader rejected bools.
+Full account in `BRIEF-AGENT-V2-REVIEW.md` §1. An unknown peak now falls back to
+NAV — **never to zero drawdown**.
+
 
 ### Why NaN validation belongs in this section
 
@@ -142,9 +165,12 @@ realised volatility on average.
 
 ### Known gap
 
-There is **no guard for `premium <= 0`**. An illiquid option quoting zero would
-divide by zero in the capture calculation. Unlikely, unhandled, tracked in
-`KNOWN-ISSUES.md`.
+`initial_premium <= 0` is guarded: the P&L rules are skipped, a trace line
+records that they could not be evaluated, and delta/DTE roll rules still apply.
+`KNOWN-ISSUES.md` #9 claimed an unguarded `ZeroDivisionError` here — that claim
+was **wrong**, verified 29 Aug by calling `evaluate_position` with premiums of
+`0.0`, `-1.0` and `None`. All three return cleanly.
+
 
 ---
 

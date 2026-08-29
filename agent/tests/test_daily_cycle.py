@@ -70,8 +70,14 @@ def _run(**kw) -> dict:
     snaps: dict = kw.pop("candidate_snapshots") if "candidate_snapshots" in kw else {
         s: _snapshot(s) for s in ("AAPL", "MSFT")}
     defaults: dict = dict(
+        # MODIFIED (W0.4): market_value added. Live Alpaca positions ALWAYS
+        # carry it, and its absence made this fixture take the full-NAV
+        # drawdown branch while production took the overlay branch — which is
+        # why test_drawdown_breach_halts passed against a broken control
+        # (finding A3). Fixtures must match production payload shape.
         portfolio_positions=[{"symbol": "AAPL", "qty": 50,
-                              "current_price": 100.0}],
+                              "current_price": 100.0,
+                              "market_value": 5000.0}],
         cash=50000.0,
         open_option_positions=[],
         candidate_snapshots=snaps,
@@ -79,6 +85,7 @@ def _run(**kw) -> dict:
     )
     defaults.update(kw)
     return run_daily_cycle(**defaults)
+
 
 
 # --------------------------------------------------------------------------- #
@@ -112,6 +119,107 @@ def test_healthy_portfolio_does_not_halt(bullish_engine):
     assert r["halted"] is False
     assert "kill_switch" in r["steps_run"]
     assert r["steps_run"][0] == "kill_switch"
+
+
+# --------------------------------------------------------------------------- #
+# W0 regression — findings A/B reaching run_daily_cycle                        #
+# --------------------------------------------------------------------------- #
+
+def test_drawdown_halts_on_production_shaped_positions(bullish_engine):
+    """Finding A1/A3 end to end: an Alpaca-shaped equity book (market_value
+    present) must still halt on a NAV drawdown. Before W0 this returned
+    halted=False because every long stock counted as overlay collateral."""
+    r = _run(
+        portfolio_positions=[
+            {"symbol": "NVDA", "qty": 100, "current_price": 300.0,
+             "market_value": 30000.0},
+            {"symbol": "MSFT", "qty": 100, "current_price": 250.0,
+             "market_value": 25000.0},
+        ],
+        cash=0.0,
+        portfolio_state_overrides={"peak_equity": 200000.0},
+    )
+    assert r["halted"] is True
+    assert r["kill_switch"]["drawdown_basis"] == "nav"
+    assert any("drawdown" in reason for reason in r["halt_reasons"])
+
+
+def test_supplied_peak_below_equity_cannot_lower_the_high_water_mark(bullish_engine):
+    """Finding B: the backend passes CURRENT equity as peak_equity. Treating it
+    as a candidate max means a stale/wrong peak cannot mask a real drawdown."""
+    r = _run(
+        portfolio_positions=[{"symbol": "AAPL", "qty": 50,
+                              "current_price": 100.0,
+                              "market_value": 5000.0}],
+        cash=50000.0,
+        portfolio_state_overrides={"peak_equity": 1.0},  # nonsense low peak
+    )
+    assert r["portfolio_state"]["peak_equity"] >= r["portfolio_state"]["equity"]
+    assert r["halted"] is False
+
+
+def test_stop_loss_exits_produce_the_consecutive_counter(bullish_engine):
+    """Finding B: nothing computed consecutive_stop_losses. Three STOP_LOSS
+    exits in one cycle must now halt without any caller override."""
+    def _stopped(strike: str) -> dict:
+        # loss >= 2x initial premium → STOP_LOSS
+        return {"symbol": f"AAPL301231C{strike}", "qty": -1,
+                "initial_premium": 1.0, "current_premium": 4.0,
+                "delta": 0.2, "dte": 30, "strategy": "covered_call"}
+
+    r = _run(open_option_positions=[_stopped("00200000"),
+                                    _stopped("00210000"),
+                                    _stopped("00220000")])
+    assert r["consecutive_stop_losses_observed"] == 3
+    assert r["halted"] is True
+    assert any("stop-loss" in reason for reason in r["halt_reasons"])
+    assert any(p["source"] == "kill-switch:post-exit"
+               for p in r["directives"][0]["provenance"])
+
+
+def test_take_profit_resets_the_stop_loss_run(bullish_engine):
+    """A non-stop exit breaks the run — two stops either side of a take-profit
+    is not three consecutive stops."""
+    def _pos(strike: str, current: float) -> dict:
+        return {"symbol": f"AAPL301231C{strike}", "qty": -1,
+                "initial_premium": 1.0, "current_premium": current,
+                "delta": 0.2, "dte": 30, "strategy": "covered_call"}
+
+    r = _run(open_option_positions=[_pos("00200000", 4.0),   # STOP_LOSS
+                                    _pos("00210000", 0.2),   # TAKE_PROFIT
+                                    _pos("00220000", 4.0)])  # STOP_LOSS
+    assert r["consecutive_stop_losses_observed"] == 1
+    assert r["halted"] is False
+
+
+def test_snapshot_step_honours_its_wall_clock_budget(monkeypatch, bullish_engine):
+    """Finding C: `with ThreadPoolExecutor(...)` calls shutdown(wait=True) on
+    exit, so the TimeoutError was raised only AFTER the worker it was meant to
+    abandon had finished. Measured: a 1s timeout on a 6s task returned at 6.0s.
+
+    A hung provider must not hold the cycle open. No network — the fetcher is
+    monkeypatched to sleep.
+    """
+    import time as _t
+    from agent.council import daily_cycle as dc
+
+    def _hang(symbol):
+        _t.sleep(30.0)
+        return {"symbol": symbol}
+
+    monkeypatch.setattr(dc, "_provider_fetch_snapshot", _hang)
+
+    started = _t.monotonic()
+    snaps, missing = dc._load_snapshots(
+        ["AAPL", "MSFT"], injected=None, allow_provider=True,
+        fetch_timeout_seconds=0.5, fetch_retries=1)
+    elapsed = _t.monotonic() - started
+
+    # Budget is 0.5s x 1 attempt x 2 symbols = 1.0s. Allow generous slack for
+    # the bundled-snapshot fallback, but nowhere near the 30s hang.
+    assert elapsed < 5.0, f"snapshot step took {elapsed:.1f}s — budget not enforced"
+
+
 
 
 # --------------------------------------------------------------------------- #

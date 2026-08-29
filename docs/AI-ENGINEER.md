@@ -167,9 +167,11 @@ returned a bare string, which meant consumers had to handle
 `_dte_of(position)` parses the OCC option symbol to recover expiry, so DTE works
 even when the broker payload omits it.
 
-**Known gap:** there is no guard for `premium <= 0`. An illiquid option quoting
-zero would divide by zero in the capture calculation. Rare, unhandled, tracked in
-`KNOWN-ISSUES.md`.
+**Known gap:** none for `premium <= 0` — `initial <= 0` is guarded at
+`exit_manager.py:102`; the P&L rules are skipped with a trace line and roll rules
+still apply. `KNOWN-ISSUES.md` #9 claimed an unguarded `ZeroDivisionError`; that
+claim was verified false on 29 Aug and the item is closed.
+
 
 ---
 
@@ -195,10 +197,11 @@ executes in a fixed order. **The order is the safety property.**
 
 ```
 1. Kill-switch check          ← FIRST. If halted, return immediately.
-2. Snapshots + fundamentals   ← timeout + retry, fallback to bundled snapshots
+2. Snapshots + fundamentals   ← wall-clock budget, fallback to bundled snapshots
 3. Mr. Market mood            ← from SPY price series and volatility
 4. Council assessments        ← per held underlying and per candidate
 5. Exit evaluation            ← on open overlay positions
+5b. Kill-switch RE-CHECK      ← consecutive stop-losses observed this cycle
 6. New-entry screening        ← tier policy + concentration + sector caps
 7. DailyDirective queue       ← prioritised, each with trace + provenance
 ```
@@ -207,6 +210,12 @@ Step 1 is first so that a halted portfolio cannot have any later step produce a
 new entry. If the kill-switch fires, the function returns with halt reasons and
 **every subsequent step is skipped** — verified by
 `agent/tests/test_daily_cycle.py`.
+
+Step 5b exists because the stop-loss count is a *product* of step 5. Checking it
+only at step 1 meant a cycle that generated three stop-losses would still screen
+new entries with that cycle's own evidence of trouble in hand. The re-check
+short-circuits before screening and returns a `kill-switch:post-exit` directive.
+
 
 ### DailyDirective
 
@@ -227,10 +236,23 @@ new entry. If the kill-switch fires, the function returns with halt reasons and
 Actions: `EXIT`, `ROLL`, `INITIATE`, `HOLD`, `MONITOR`.
 
 ### Resilience
-`fetch_timeout_seconds` (default 5.0) and `fetch_retries` (default 2) wrap the
-snapshot fetch in a `ThreadPoolExecutor` with per-symbol timeout and backoff. On
-persistent failure it falls back to `docs/market_snapshots.json` so the cycle
-completes with stale-but-real data rather than hanging.
+`fetch_timeout_seconds` (default 5.0) and `fetch_retries` (default 2) set an
+**overall wall-clock budget** for the snapshot step:
+`per_symbol × attempts × len(missing)`. One `ThreadPoolExecutor` handles the
+whole batch, `as_completed(timeout=remaining)` enforces the deadline, stragglers
+are cancelled, and `shutdown(wait=False)` prevents an in-flight socket read from
+re-imposing the stall. On persistent failure it falls back to
+`docs/market_snapshots.json` so the cycle completes with stale-but-real data.
+
+**Until 29 Aug this bound did not exist.** The old code wrapped each fetch in
+`with ThreadPoolExecutor(...) as pool`, and `__exit__` calls
+`shutdown(wait=True)` — which joins the worker *before* the `except` clause
+runs. The `TimeoutError` was raised on schedule and then blocked on the very
+fetch it was meant to abandon. Measured: **60.4s against a 1.0s budget.** Worst
+case over the 8-symbol universe was ~16 minutes, inside the
+`POST /api/agent/run` request path. Regression test:
+`test_daily_cycle.py::test_snapshot_step_honours_its_wall_clock_budget`.
+
 
 ---
 
@@ -319,11 +341,18 @@ No test touches the network. Fundamentals tests use monkeypatched fetchers.
 
 ## Open work in this layer
 
-1. **Fundamentals cache is ephemeral** — lives in `/tmp`, lost on restart, which
-   silently drops the council from HIGH to LOW confidence.
+1. **Fundamentals cache is ephemeral and world-writable** — lives at a fixed
+   `/tmp` path, so a restart silently drops the council from HIGH to LOW
+   confidence, and any process on the box can pre-create or overwrite it. The
+   loader validates nothing beyond JSON parse + TTL, and fundamentals feed
+   persona scoring, which drives the HANDOFF tier policy — the same trust
+   boundary as security finding S5, one step earlier. `KNOWN-ISSUES.md` #1.
 2. **Mr. Market has no hysteresis** — regime is classified per call, so it can
    flip on noise between two requests.
 3. **INCONCLUSIVE Graham tests count as neutral** — biases the council bullish on
    names with thin data. Should be a half-fail.
-4. **`premium <= 0` unguarded** in `exit_manager`.
+4. **Consecutive stop-losses are within-cycle only** — the count resets every
+   cycle. Three stops across three cycles never halt. Needs the W1 `exit_event`
+   ledger. `KNOWN-ISSUES.md` #11.
 5. **Handoff is unauthenticated** — see above.
+

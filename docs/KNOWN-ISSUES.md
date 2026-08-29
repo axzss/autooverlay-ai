@@ -7,27 +7,76 @@ Legend: **owner** is per `JOBDESK.md`.
 
 ---
 
-## 1 · Fundamentals cache is ephemeral — HIGH
+## 0 · Resolved 29 Aug — W0 safety-floor fixes
 
-**Owner:** AI engineering · **File:** `agent/council/fundamentals.py`
+Four findings from the audit in `BRIEF-AGENT-V2-REVIEW.md`, all fixed and
+regression-tested. Kept here because the *class* of each bug matters more than
+the instance.
 
-Cache lives at `/tmp/fundamentals_cache.json`. On any container or VPS restart it
-is gone.
+| # | Finding | Fix |
+|---|---|---|
+| A | `overlay_only_drawdown` assigned overlay equity to **both** sides of the drawdown ratio, so `dd` was always exactly `0.0` | Real overlay high-water mark via `portfolio_state["overlay_peak_equity"]`; NAV fallback with a note when absent |
+| A1 | Overlay sum ran over the **equity book** — long stock counted as overlay collateral, so the branch fired on every live account | `_is_short_option()` — OCC symbol **and** negative qty; `daily_cycle` now passes `positions + open_options` |
+| A2 | `overlay_only_drawdown=False` was unsettable — `_cfg_get` rejects bools and returned the default | New `_cfg_flag()` for boolean config; `_cfg_get` left strict for numeric thresholds |
+| A3 | `test_drawdown_breach_halts` passed because its fixture **omitted `market_value`**, taking the opposite branch from production | Fixture now production-shaped; 6 new tests in `test_risk_mitigation.py` |
+| B | Backend passes **current** equity as `peak_equity`, and nothing anywhere produced `consecutive_stop_losses` | Supplied peak treated as a *candidate max*; `_consecutive_stop_losses()` derives the counter from exit decisions, with a post-exit kill-switch recheck |
+| C | `with ThreadPoolExecutor(...)` → `shutdown(wait=True)` on exit, so the timeout fired only **after** the worker it was meant to abandon finished. Measured 60.4s against a 1.0s budget | One executor per batch, `as_completed(timeout=budget)`, `shutdown(wait=False)`, `except Exception` narrowed |
 
-Consequence: the council silently drops from HIGH to LOW confidence. NVDA (68.0)
-and MSFT (60.2) revert from ACCUMULATE to HOLD, every P/E and dividend figure
-disappears, and the report on disk no longer matches what the running system
-produces. Nothing warns you — the degradation is invisible.
+Live Layer 1 status before W0: drawdown **dead twice over**, stop-loss counter
+**never fed**, single-day loss the only working trigger. Verified after:
 
-If this happens mid-demo, the numbers on screen contradict the numbers in the
-report.
+```
+1) NAV drawdown -72.5%            halted=True  basis=nav      'nav drawdown -72.50% breaches -5.00%'
+3) 3 stop-losses, no override     halted=True  observed=3     '3 consecutive stop-losses reached'
+4) NAV flat, overlay -60%         halted=True  basis=overlay  'overlay drawdown -60.00% breaches -5.00%'
+```
+
+`kill_switch` now also returns `notes: list[str]` and `drawdown_basis:
+"nav"|"overlay"`, so a fallback is visible rather than silent. Two existing
+whole-dict-equality assertions were relaxed to field assertions — flagged in the
+commit message per `JOBDESK.md`.
+
+**The lesson worth keeping:** finding A had a *passing test* for eighteen days.
+A green suite is not evidence a control works when the fixture and production
+take different branches.
+
+**Still open from the same audit:** the `/tmp` fundamentals cache is
+world-writable and feeds persona scoring — the same trust boundary as security
+finding S5, one step earlier in the pipeline. See #1 below.
+
+---
+
+
+## 1 · Fundamentals cache is ephemeral **and world-writable** — HIGH
+
+**Owner:** AI engineering · **File:** `agent/council/fundamentals.py:26`
+
+Cache lives at `/tmp/fundamentals_cache.json`. Two distinct problems.
+
+**Durability.** On any container or VPS restart it is gone. The council silently
+drops from HIGH to LOW confidence: NVDA (68.0) and MSFT (60.2) revert from
+ACCUMULATE to HOLD, every P/E and dividend figure disappears, and the report on
+disk no longer matches what the running system produces. Nothing warns you. If
+this happens mid-demo, the numbers on screen contradict the numbers in the report.
+
+**Trust (added 29 Aug).** `/tmp` is mode `0o41777` — shared and world-writable —
+and the path is fixed and predictable. Any process on the box can pre-create or
+overwrite that file, and the loader validates nothing beyond a JSON parse and a
+TTL check. Fundamentals feed persona scoring, and persona output drives the
+HANDOFF tier policy, so this is the same trust boundary as security finding S5
+(a crafted report injecting `delta 0.99`) reached one step earlier in the
+pipeline. S5 was rated worth fixing; this was not tracked at all. The sticky bit
+prevents deleting another user's file, not creating it first, and offers nothing
+against anything running as the same user — `root`, on this box.
 
 **Fix:** move the cache to `docs/.cache/fundamentals.json` (already gitignored),
 keep the 24h TTL and atomic writes, fall back to `/tmp` if the repo path is not
-writable, and expose `data_age_hours` + `stale` on the merged snapshot so
-consumers can tell fresh from stale.
+writable, validate entry shape on load rather than trusting parsed JSON, and
+expose `data_age_hours`, `stale` and `source: "cache"|"live"` on the merged
+snapshot so consumers — and persona bullets — can tell fresh from stale.
 
 This was written and then removed in a reverted batch. It needs redoing.
+
 
 ---
 
@@ -166,14 +215,28 @@ a shared-secret header on mutating routes.
 
 ---
 
-## 9 · `premium <= 0` unguarded in exit manager — LOW
+## 9 · `premium <= 0` unguarded in exit manager — **NOT A DEFECT** (closed 29 Aug)
 
 **Owner:** AI engineering · **File:** `agent/exit_manager.py`
 
-Premium-capture percentage divides by initial premium with no zero check. An
-illiquid option quoting zero would raise `ZeroDivisionError` mid-cycle.
+This entry was wrong. The guard exists at `exit_manager.py:102`:
 
-**Fix:** `if premium <= 0: return MONITOR` and skip exit evaluation.
+```python
+if initial <= 0:
+    trace.append(f"initial premium ${initial:.2f} invalid — cannot evaluate P&L rules ✗")
+    pnl_capture_pct = None
+    loss_multiple = None
+```
+
+Verified by calling `evaluate_position` with `initial_premium` of `0.0`, `-1.0`
+and `None` — all three return cleanly, and delta/DTE roll rules still fire
+(`prem=0, delta .55 → ROLL`). No `ZeroDivisionError` is reachable.
+
+Kept as a record: this item sat on the roadmap and in two layer docs as
+outstanding work that did not exist. **Audit the code before scheduling the
+fix** — the reverse of finding A, where a doc claimed a control worked and it
+did not.
+
 
 ---
 
@@ -221,16 +284,26 @@ primitives module so pages that only need `Reveal` do not pull the full library.
 
 ---
 
-## 11 · Kill-switch state is not persisted — LOW
+## 11 · Kill-switch state is not persisted — HIGH
 
 **Owner:** AI engineering
 
-The consecutive-stop-loss counter is recomputed from portfolio state each cycle. A
-process restart resets it silently, so three stop-losses spread across a restart
-never trigger the halt.
+**Reclassified from LOW on 29 Aug.** The original entry said the
+consecutive-stop-loss counter "is recomputed from portfolio state each cycle" and
+that a restart loses it. The audit found something worse: **nothing computed it
+at all.** `_build_portfolio_state` read it only from caller overrides, and the
+one live caller (`backend/app/routes/council.py`) never sets it — so the trigger
+was unreachable in production regardless of restarts.
 
-**Fix:** persist the counter, or derive it from order history rather than
-in-process state.
+W0 added `_consecutive_stop_losses()`, which derives the count from this cycle's
+exit decisions and re-checks the kill-switch after exit evaluation. That makes
+the trigger reachable, but it is **within-cycle only**: three stop-losses spread
+across three separate cycles still do not accumulate.
+
+**Remaining fix:** the W1 `exit_event` ledger. Count trailing `STOP_LOSS` rows
+across cycles, reset on any non-stop exit. Until then the counter is a floor, not
+the true value.
+
 
 ---
 

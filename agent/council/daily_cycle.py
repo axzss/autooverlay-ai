@@ -81,17 +81,52 @@ def _position_value(p: dict) -> float:
 
 def _build_portfolio_state(positions: List[dict], cash: float,
                            overrides: Optional[dict]) -> dict:
-    """Derive kill-switch inputs; explicit overrides always win."""
+    """Derive kill-switch inputs; explicit overrides always win.
+
+    ``peak_equity`` is a HIGH-WATER MARK, so a caller-supplied value is treated
+    as a *candidate* max and never allowed to lower the mark below current
+    equity. The live backend passes the account's CURRENT equity here (finding
+    B), which made peak == equity and the drawdown ratio always 0. Taking the
+    max is what makes that harmless from inside this layer.
+    """
     equity = sum(_position_value(p) for p in positions) + float(cash or 0)
+    ov = overrides or {}
     state = {
         "equity": equity,
-        "peak_equity": overrides.get("peak_equity") if overrides else None,
-        "prev_equity": overrides.get("prev_equity") if overrides else None,
-        "consecutive_stop_losses":
-            (overrides or {}).get("consecutive_stop_losses"),
+        "peak_equity": ov.get("peak_equity"),
+        "prev_equity": ov.get("prev_equity"),
+        "consecutive_stop_losses": ov.get("consecutive_stop_losses"),
+        "overlay_peak_equity": ov.get("overlay_peak_equity"),
     }
-    state["peak_equity"] = state["peak_equity"] or equity
+    # A peak below current equity is not a peak.
+    try:
+        supplied_peak = float(state["peak_equity"]) if state["peak_equity"] is not None else None
+    except (TypeError, ValueError):
+        supplied_peak = None
+    state["peak_equity"] = max(supplied_peak, equity) if supplied_peak is not None else equity
     return {k: v for k, v in state.items() if v is not None}
+
+
+def _consecutive_stop_losses(exit_decisions: List[dict]) -> int:
+    """Count trailing STOP_LOSS exits in this cycle's exit evaluations.
+
+    Nothing in the system produced this signal before — the kill-switch read it
+    only from caller overrides and the live backend never sets it, so the
+    consecutive-stop-loss trigger could not fire in production (finding B).
+
+    This is the within-cycle producer. It is a floor, not the full answer: a
+    durable count across cycles needs the W1 exit_event ledger. Any non-stop
+    exit resets the run, matching the documented semantics.
+    """
+    count = 0
+    for decision in reversed(exit_decisions or []):
+        action = str((decision or {}).get("action") or "").upper()
+        if action == "STOP_LOSS":
+            count += 1
+        elif action in ("TAKE_PROFIT", "ROLL"):
+            break
+    return count
+
 
 
 def _load_snapshots(symbols: List[str],
@@ -122,30 +157,49 @@ def _load_snapshots(symbols: List[str],
             snaps[sym] = u
     missing = [s for s in symbols if s not in snaps]
     if missing and allow_provider:
-        _FETCH_TIMEOUT = max(fetch_timeout_seconds, 0.1)
-        _FETCH_RETRIES = max(fetch_retries, 1)
+        per_symbol = max(fetch_timeout_seconds, 0.1)
+        attempts = max(fetch_retries, 1)
+        # Overall wall-clock budget for the whole step. The old code applied
+        # fetch_timeout_seconds per symbol via `with ThreadPoolExecutor(...)`,
+        # but __exit__ calls shutdown(wait=True), which JOINS the worker before
+        # the except clause runs — so the timeout never interrupted anything and
+        # the real bound was the provider's own 15s socket timeout times four
+        # HTTP calls times every symbol and retry (up to ~16 min).
+        budget = per_symbol * attempts * max(len(missing), 1)
+        deadline = _time.monotonic() + budget
 
-        # Retry helper with timeout
-        def _fetch_one(sym: str) -> dict | None:
-            for attempt in range(_FETCH_RETRIES):
-                try:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        fut = pool.submit(
-                            _provider_fetch_snapshot, sym)
-                        return fut.result(timeout=_FETCH_TIMEOUT)
-                except (_FuturesTimeoutError, Exception):
-                    _time.sleep(0.2 * (attempt + 1))
-            return None  # failed after retries
+        still_missing: list[str] = list(missing)
+        # ONE executor for the batch, not one per symbol per attempt.
+        pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(8, max(len(still_missing), 1)))
+        try:
+            futures = {pool.submit(_provider_fetch_snapshot, sym): sym
+                       for sym in still_missing}
+            remaining = max(deadline - _time.monotonic(), 0.0)
+            try:
+                for fut in concurrent.futures.as_completed(futures,
+                                                          timeout=remaining):
+                    sym = futures[fut]
+                    try:
+                        snap = fut.result(timeout=0)
+                    except Exception:
+                        continue  # this symbol degrades to missing
+                    if isinstance(snap, dict) and snap.get("symbol"):
+                        snaps[snap["symbol"]] = snap
+                        if sym in still_missing:
+                            still_missing.remove(sym)
+                        if sym in missing:
+                            missing.remove(sym)
+            except (_FuturesTimeoutError, TimeoutError):
+                pass  # budget exhausted — whatever landed is what we use
+            finally:
+                for fut in futures:
+                    fut.cancel()
+        finally:
+            # Do NOT wait: an in-flight socket read would re-impose the very
+            # stall this budget exists to prevent.
+            pool.shutdown(wait=False)
 
-        still_missing: list[str] = []
-        for sym in list(missing):
-            snap = _fetch_one(sym)
-            if isinstance(snap, dict) and snap.get("symbol"):
-                snaps[snap["symbol"]] = snap
-                if sym in missing:
-                    missing.remove(sym)
-            else:
-                still_missing.append(sym)
 
         # Fallback to bundled docs/market_snapshots.json for any still-missing
         if still_missing:
@@ -249,9 +303,12 @@ def run_daily_cycle(
     # ---- 0. KILL SWITCH FIRST ------------------------------------------- #
     portfolio_state = _build_portfolio_state(
         positions, cash, portfolio_state_overrides)
+    # Overlay detection needs the OPTION book. Passing the equity book here was
+    # finding A1: every long stock position counted as "overlay collateral".
     kill = evaluate_kill_switch(portfolio_state, config=config,
-                                positions=positions)
+                                positions=list(positions) + list(open_options))
     result["kill_switch"] = kill
+
     result["portfolio_state"] = {
         k: round(float(v), 2) if isinstance(v, (int, float)) else v
         for k, v in portfolio_state.items()}
@@ -328,7 +385,33 @@ def run_daily_cycle(
 
     # ---- d. Exit evaluation on open overlays ------------------------------ #
     exit_mgr = ExitManager(config=config)
-    for ex in exit_mgr.evaluate_positions(open_options):
+    exit_decisions = list(exit_mgr.evaluate_positions(open_options))
+    # Produce the consecutive-stop-loss signal. Before this, nothing computed it
+    # and the live backend never supplied it, so that kill-switch trigger was
+    # unreachable in production (finding B). An explicit override still wins.
+    observed_stops = _consecutive_stop_losses(exit_decisions)
+    result["consecutive_stop_losses_observed"] = observed_stops
+    if "consecutive_stop_losses" not in portfolio_state and observed_stops:
+        portfolio_state["consecutive_stop_losses"] = observed_stops
+        recheck = evaluate_kill_switch(
+            portfolio_state, config=config,
+            positions=list(positions) + list(open_options))
+        if recheck["halted"]:
+            result["halted"] = True
+            result["kill_switch"] = recheck
+            result["halt_reasons"] = list(recheck["reasons"])
+            result["directives"] = [_directive(
+                "HOLD", "*", {}, PRIORITY_HOLD,
+                ["kill-switch HALT after exit evaluation — "
+                 + "; ".join(recheck["reasons"]),
+                 f"{observed_stops} stop-loss exits observed this cycle",
+                 "new entries suppressed per risk_mitigation policy"],
+                [_provenance("kill-switch:post-exit",
+                             "; ".join(recheck["reasons"]))])]
+            step("exits")
+            return result
+    for ex in exit_decisions:
+
         action = ex["action"]
         if action == "TAKE_PROFIT" or action == "STOP_LOSS":
             directive_action, prio = "EXIT", PRIORITY_EXIT
