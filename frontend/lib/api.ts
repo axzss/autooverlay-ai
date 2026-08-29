@@ -1,5 +1,7 @@
 // Typed API client for the AutoOverlay backend.
-// Base URL: http://localhost:8000 — override with NEXT_PUBLIC_API_BASE_URL.
+// Requests are same-origin by default and reach the backend through the
+// next.config.js rewrite (/api/* -> :8000/api/*). Override with
+// NEXT_PUBLIC_API_BASE_URL only when the backend is on a different host.
 
 import { useCallback, useEffect, useState } from 'react'
 import type {
@@ -9,8 +11,16 @@ import type {
 } from '../app/types/portfolio'
 import mockPortfolio from '../app/data/mock_portfolio.json'
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000'
+/**
+ * Empty string = same origin.
+ *
+ * This MUST NOT default to a hardcoded host. fetch() runs in the user's
+ * browser, so 'http://localhost:8000' resolves to the *visitor's* machine —
+ * every request fails with "unreachable" for anyone who is not sitting at the
+ * dev box. It only appeared to work locally, and broke the moment the app was
+ * opened over a tunnel or from a phone.
+ */
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? ''
 
 export interface StrategyOpportunity {
   symbol: string
@@ -101,7 +111,12 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 5000)
+  // Agent endpoints fan out to Alpaca and Yahoo per symbol: /council/cycle and
+  // /agent/run take ~2s locally and more over a tunnel. A flat 5s budget
+  // aborted them and surfaced as "unreachable", which reads as a dead backend
+  // rather than a slow one. Reads stay tight; agent runs get room.
+  const slow = /\/(agent\/run|council\/(cycle|assess)|strategy\/screen)/.test(path)
+  const timeout = setTimeout(() => controller.abort(), slow ? 30000 : 8000)
   try {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
@@ -117,6 +132,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     return (await res.json()) as T
   } catch (err) {
     if (err instanceof ApiError) throw err
+    // Distinguish a timeout from a genuinely unreachable host: the two have
+    // different causes and different fixes.
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiError(`API ${path} timed out`, err)
+    }
     throw new ApiError(`API ${path} unreachable`, err)
   } finally {
     clearTimeout(timeout)
