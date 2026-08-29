@@ -1,63 +1,26 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
-import {
-  LayoutGrid,
-  Wallet,
-  Terminal,
-  Settings,
-  Rocket,
-  LayoutTemplate,
-  User,
-  Menu,
-} from 'lucide-react'
+import { Rocket, LayoutTemplate, User, Menu } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
-import { cn } from '@/lib/utils'
 import MobileSidebar from '@/components/MobileSidebar'
+import { LogoMark } from '@/components/brand/Logo'
 
-const nav = [
-  { name: 'Dashboard', icon: LayoutGrid, href: '/dashboard' },
-  { name: 'Assets', icon: Wallet, href: '/assets' },
-  { name: 'Terminal', icon: Terminal, href: '/terminal' },
-  { name: 'Settings', icon: Settings, href: '/settings' },
-]
-
+/**
+ * Top bar: brand, status indicators, and profile actions only.
+ * Primary navigation lives in the left Sidebar (desktop) and MobileSidebar
+ * (below lg) — the header must not duplicate it.
+ */
 export default function Header() {
-  const pathname = usePathname()
-  const activePage = nav.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'))?.href ?? '/dashboard'
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#1e293b] bg-[#020617] px-4 sm:px-6">
       <div className="flex items-center gap-4 sm:gap-6">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded bg-[#22c55e]/20">
-            <LayoutGrid className="h-5 w-5 text-[#22c55e]" />
-          </div>
-          <div className="flex flex-col">
-            <span className="font-semibold text-[#22c55e] text-sm leading-tight">AutoOverlay AI | Track 4</span>
-          </div>
+          <LogoMark className="h-8 w-8" />
+          <span className="font-semibold text-[#22c55e] text-sm leading-tight">AutoOverlay AI | Track 4</span>
         </Link>
-
-        <nav className="hidden lg:flex items-center gap-1">
-          {nav.map((item) => {
-            const isActive = activePage === item.href
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors',
-                  isActive ? 'bg-[#2d3449] text-[#22c55e]' : 'text-[#94a3b8] hover:text-white hover:bg-[#1e293b]/50'
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.name}
-              </Link>
-            )
-          })}
-        </nav>
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
@@ -74,18 +37,28 @@ export default function Header() {
 
         <button
           onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation menu"
           className="lg:hidden rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
         >
           <Menu className="h-5 w-5" />
         </button>
 
-        <button className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors">
+        <button
+          aria-label="Deploy"
+          className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
+        >
           <Rocket className="h-5 w-5" />
         </button>
-        <button className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors">
+        <button
+          aria-label="Layout options"
+          className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
+        >
           <LayoutTemplate className="h-5 w-5" />
         </button>
-        <button className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors">
+        <button
+          aria-label="User profile"
+          className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
+        >
           <User className="h-5 w-5" />
         </button>
       </div>

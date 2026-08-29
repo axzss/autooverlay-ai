@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ChevronDown, Gavel, RefreshCw, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import ScoreGauge from '@/components/charts/ScoreGauge'
 import {
   api,
   type CouncilAssessResponse,
@@ -26,12 +27,6 @@ function scoreColor(score: number) {
   if (score >= 60) return 'text-[#22c55e]'
   if (score >= 40) return 'text-[#fbbf24]'
   return 'text-[#f87171]'
-}
-
-function scoreRing(score: number) {
-  if (score >= 60) return 'border-[#22c55e]/50'
-  if (score >= 40) return 'border-[#f59e0b]/50'
-  return 'border-[#ef4444]/50'
 }
 
 function stanceChip(stance: string) {
@@ -143,17 +138,7 @@ export default function CouncilBoard() {
                     </div>
                     <p className="mt-1 text-xs text-[#94a3b8]">{a.tier_policy_summary}</p>
                   </div>
-                  <div
-                    className={cn(
-                      'flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-full border-2 bg-[#020617]',
-                      scoreRing(a.consensus_score),
-                    )}
-                  >
-                    <span className={cn('text-sm font-bold', scoreColor(a.consensus_score))}>
-                      {Math.round(a.consensus_score)}
-                    </span>
-                    <span className="text-[9px] uppercase tracking-wider text-[#64748b]">cons.</span>
-                  </div>
+                  <ScoreGauge score={a.consensus_score} size={56} label="cons." />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">

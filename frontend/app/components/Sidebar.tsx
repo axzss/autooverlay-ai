@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LogoLockup } from '@/components/brand/Logo'
 
 const nav = [
   { name: 'Dashboard', icon: LayoutGrid, href: '/dashboard' },
@@ -50,13 +51,7 @@ export default function Sidebar() {
       className="fixed inset-y-0 left-0 z-50 hidden lg:flex w-[240px] bg-[#0f172a] border-r border-[#1e293b] flex-col"
     >
       <div className="flex h-14 items-center gap-2 px-4 border-b border-[#1e293b]">
-        <div className="flex h-8 w-8 items-center justify-center rounded bg-[#22c55e]/20">
-          <Rocket className="h-5 w-5 text-[#22c55e]" />
-        </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-[#22c55e] leading-tight">AutoOverlay</span>
-          <span className="text-[10px] text-[#94a3b8] uppercase tracking-widest">AI Engine Active</span>
-        </div>
+        <LogoLockup subtitle="AI Engine Active" />
       </div>
 
       <nav className="flex-1 p-2 space-y-1">

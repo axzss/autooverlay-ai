@@ -15,7 +15,22 @@ const firaCode = Fira_Code({
 
 export const metadata = {
   title: 'AutoOverlay AI | Track 4',
-  description: 'AI-driven income strategies on your existing portfolio',
+  description:
+    'Agentic options-income overlay for existing equity portfolios. Six-persona investment council, book-accurate Graham defensive tests, kill-switch first, no order submitted without approval.',
+  applicationName: 'AutoOverlay AI',
+  openGraph: {
+    title: 'AutoOverlay AI',
+    description:
+      'Options income on the equity you already hold, screened by a six-persona investment council.',
+    siteName: 'AutoOverlay AI',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AutoOverlay AI',
+    description:
+      'Options income on the equity you already hold, screened by a six-persona investment council.',
+  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

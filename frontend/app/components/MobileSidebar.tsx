@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LogoLockup } from '@/components/brand/Logo'
 
 const nav = [
   { name: 'Dashboard', icon: LayoutGrid, href: '/dashboard' },
@@ -58,16 +59,8 @@ export default function MobileSidebar({ open, onClose }: MobileSidebarProps) {
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="fixed inset-y-0 left-0 w-[240px] bg-[#0f172a] border-r border-[#1e293b] flex flex-col shadow-2xl">
         <div className="flex h-14 items-center justify-between px-4 border-b border-[#1e293b]">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded bg-[#22c55e]/20">
-              <Rocket className="h-5 w-5 text-[#22c55e]" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold text-[#22c55e] leading-tight">AutoOverlay</span>
-              <span className="text-[10px] text-[#94a3b8] uppercase tracking-widest">AI Engine Active</span>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 text-[#94a3b8] hover:text-white hover:bg-[#1e293b] rounded-md transition-colors">
+          <LogoLockup subtitle="AI Engine Active" />
+          <button onClick={onClose} aria-label="Close navigation menu" className="p-1.5 text-[#94a3b8] hover:text-white hover:bg-[#1e293b] rounded-md transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
