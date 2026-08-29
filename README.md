@@ -141,6 +141,7 @@ Details: [`docs/security_review.md`](docs/security_review.md)
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System diagram, data flow |
 | [`docs/AI-ENGINEER.md`](docs/AI-ENGINEER.md) | Agent layer in depth |
 | [`docs/HEDGE-FUND-COUNCIL.md`](docs/HEDGE-FUND-COUNCIL.md) | The six personas, Graham, Mr. Market |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Next.js layer: API client, layout, brand, charts |
 | [`docs/RISK-MANAGEMENT.md`](docs/RISK-MANAGEMENT.md) | Kill-switch, caps, exits, tiers |
 | [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md) | Every endpoint, **verified** shapes |
 | [`docs/MEMORY.md`](docs/MEMORY.md) | Dated build log with criticism per milestone |
@@ -163,12 +164,14 @@ Scope boundaries and verification requirements per role:
 ## Status
 
 237 tests collected, 236 passing. Backend complete with zero TODOs. Agent layer
-core complete. Frontend endpoints wired; identity and charts not yet built.
+core complete. Frontend fully wired: all endpoints consumed, brand identity and
+charts built, and every mockup component either connected to real data or deleted.
 
 Known defects are listed openly in
 [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md) rather than left for a reviewer to
-discover — including mockup components that still render placeholder data, and a
-fundamentals cache that does not survive a restart.
+discover — the two that matter most being a fundamentals cache that does not
+survive a restart, and the fact that **nobody has yet verified the UI visually**:
+type checks and a passing build are not the same as looking at it.
 
 ---
 

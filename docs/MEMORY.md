@@ -301,7 +301,7 @@ sequence (root sandbox → missing `DISPLAY` → websocket origin rejection).
 "HTTP 200 and a clean build" is not the same as "it looks right", and this
 document should not pretend otherwise.
 
-### Uncommitted at time of writing — dashboard layout fixes
+### `65f6a4f` — dashboard layout fixes
 Content was rendering *behind* the fixed sidebar: `Sidebar` uses `fixed
 inset-y-0 left-0 w-[240px]`, so it leaves the document flow, but the content
 wrapper was plain `flex flex-1` and started at x=0. Added `lg:ml-[240px]` to the
@@ -319,14 +319,98 @@ these changes. `rm -rf .next` and a rebuild cleared it.
 
 ---
 
+## 2026-08-29 — Day 5: documentation, then an honest frontend
+
+### `a1f7756` — full documentation set
+**12 files, +2,661.** Author: `zmdiata`.
+
+Created `docs/` as the documentation source of truth: `README` (index),
+`JOBDESK`, `AI-ENGINEER`, `HEDGE-FUND-COUNCIL`, `ARCHITECTURE`, `API-CONTRACT`,
+`RISK-MANAGEMENT`, `MEMORY`, `TESTING`, `KNOWN-ISSUES`, `ROADMAP`, and a rewritten
+root `README`.
+
+Written against the code and against live API responses, not against design
+intent. Writing them surfaced five defects that had never been recorded:
+`_order_intents` cannot produce a real contract; 20 of ~28 frontend components had
+no `lib/api` import; `exit_manager` has no `premium <= 0` guard; the kill-switch
+consecutive-stop-loss counter is not persisted; and
+`specials/BACKEND_FRONTEND_API.md` contradicts the API on three fields.
+
+**Criticism.** Documentation found more real defects in one pass than the
+preceding two days of feature work. That is a comment on the process, not a credit
+to the docs — those defects were all visible in the code the whole time and nobody
+had read it end to end.
+
+### `70db9f6` — credit the frontend owner as Aditya Maulana
+Two tables, not one: `README.md` and `docs/JOBDESK.md` both carried it.
+
+### `0252f4e` — honest agent panels, brand identity, charts, mockup deletion
+**35 files, +915 / −1290.** Author: `axzss`.
+
+**Stopped showing data that was never real.** `ThoughtProcess.tsx` had a hardcoded
+log claiming `Executing SELL to OPEN 1 Contract SPY 565C` and
+`Order Confirmed. Yield harvested: $120.00`. It now renders `reasoning_trace` from
+the actual `/api/agent/run` response, or an empty state.
+
+**Wired the dashboard trigger.** `AgentControl`'s button had **no `onClick` at
+all** — never wired, not broken. It now calls `api.runAgent()` through a new
+`AgentRunProvider`, so the control card and the reasoning panel share one run
+instead of firing separate requests and disagreeing. The UI is deliberately honest
+about what the backend really returns: kill-switch HALT renders with reasons and
+no intent table, an empty `order_intents` says so, and null `option_symbol` /
+`limit_price` render as "contract pending" / "no limit set" rather than a
+fabricated strike.
+
+**Brand identity, previously nonexistent.** `components/brand/Logo.tsx` —
+`LogoMark` + `LogoLockup`. The mark draws the product name literally: a flat slate
+baseline with two overlay layers stepping above it, emerald on the active layer.
+Flat by choice — no gradients, glow, or glassmorphism. Plus `app/icon.tsx`
+(favicon) and `app/opengraph-image.tsx` (1200×630 preview) via `next/og`, so no
+binary assets need to stay in sync with the SVG.
+
+**Charts.** `recharts` had been sitting in dependencies unused since day one. Four
+added: `EquitySparkline`, `ScoreGauge` (pure SVG ring — no recharts radial gauge is
+worth the bundle), `AllocationDonut`, `YieldBars`. All restrained: thin strokes,
+muted palette, one emerald accent, `tabular-nums`.
+
+**Deleted mockups rather than leaving them to be mistaken for features.**
+`ActiveOverlayContracts` now filters real option positions and parses OCC symbols
+for strike/expiry/DTE. Removed `AgentConfiguration` (a second config panel whose
+Save called `alert()` and persisted nothing) and 11 never-rendered files:
+`ActiveOverlay`, `TradeLog`, `OverlayControl`, `AgentTerminal`, `Dashboard`,
+`StrategyCard`, and the `ai/`, `portfolio/`, `strategy/`, `trading/`, `ui/`
+directories.
+
+Verified: `tsc --noEmit` clean; `npm run build` 11/11 pages including `/icon` and
+`/opengraph-image`; five pages plus both image routes 200; all six API endpoints
+200 through the proxy; 236 tests pass; no secrets.
+
+**Criticism, and it is the same one as yesterday.** Visual verification *still* has
+not happened — the logo and four charts shipped without anyone looking at them.
+Charts are the one category of change where a type check tells you almost nothing:
+a sparkline with an inverted domain or a donut with unreadable contrast compiles
+perfectly. This is now the highest-value open item precisely because so much has
+been built on top of an unverified layout.
+
+Second, smaller criticism: the charts had to be written defensively against the
+backend's data poverty. The sparkline gets **two** real points because
+`/api/portfolio` exposes only `last_equity` and `equity`; drawing a smooth 30-day
+curve would have looked far better and meant nothing. Choosing the honest version
+is correct, but it is worth noticing that the frontend is now working around a gap
+the backend could close.
+
+
+---
+
 ## Cumulative state
 
 | Metric | Value |
 |---|---|
-| Commits on `master` | 43 |
+| Commits on `master` | 47 |
 | Tests | 237 collected, 236 pass, 1 skipped |
 | Backend routes | 11, zero TODOs |
-| Frontend pages | 5 |
+| Frontend pages | 5, plus `/icon` and `/opengraph-image` |
+| Frontend components | 20 (12 mockup files deleted) |
 | Council personas | 6 |
 | Symbol universe | AAPL, MSFT, NVDA, TSLA, SPY, QQQ, JPM, KO |
 | Security findings | 7 found, 7 fixed, 32 regression tests |
@@ -334,19 +418,27 @@ these changes. `rm -rf .next` and a rebuild cleared it.
 
 ## Standing criticisms not yet resolved
 
-1. **Fundamentals are ephemeral.** The cache lives in `/tmp`. A restart drops
+1. **No visual verification, no E2E test.** Nobody has ever confirmed the UI
+   renders correctly, by eye or by automation — and the brand mark plus four
+   charts have now shipped on top of that unverified layout. This is the largest
+   remaining unknown in the project.
+2. **Fundamentals are ephemeral.** The cache lives in `/tmp`. A restart drops
    the council from HIGH to LOW confidence and reverts NVDA/MSFT to HOLD. The
    fix was written and then reverted; it needs redoing.
-2. **Mockup components still render.** `ThoughtProcess.tsx` displays a
-   fabricated executed trade with a fabricated $120 yield. It is the single
-   biggest credibility risk in a live demo.
 3. **`_order_intents` cannot produce a real contract.** It reads
    `option_symbol` and `limit_price` from directive params, but `INITIATE`
    directives carry tier policy, not concrete contracts — so both are always
-   `null` and `type` always falls back to `"market"`.
+   `null` and `type` always falls back to `"market"`. The frontend now renders
+   this honestly ("contract pending"), which makes the gap visible rather than
+   fixing it.
 4. **`specials/BACKEND_FRONTEND_API.md` contradicts the code** on `tier`,
    `consensus_score` scale, and `delta_min` sign. See `KNOWN-ISSUES.md`.
 5. **Handoff trust.** Markdown parsing with regex, clamped but not
    authenticated. The red team's provenance-signing recommendation is open.
-6. **No visual verification, no E2E test.** Nobody has confirmed the UI renders
-   correctly, by eye or by automation.
+6. **The backend exposes almost no history.** `/api/portfolio` gives
+   `last_equity` and `equity` — two points. The equity sparkline is honest about
+   that, but the frontend is working around a gap the backend could close.
+
+Resolved since the last revision: the fabricated trade log, the unwired
+`AgentControl` button, the hardcoded overlay-contracts row, and eleven
+never-rendered mockup files.

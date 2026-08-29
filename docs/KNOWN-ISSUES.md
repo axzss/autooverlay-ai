@@ -7,40 +7,7 @@ Legend: **owner** is per `JOBDESK.md`.
 
 ---
 
-## 1 · Mockup components render fabricated data — CRITICAL
-
-**Owner:** frontend · **File:** `frontend/app/components/ThoughtProcess.tsx`
-
-The component contains a hardcoded log array, rendered on `/dashboard`:
-
-```
-10:00:14  MCP     Executing SELL to OPEN 1 Contract SPY 565C 09/04.
-10:00:16  SYSTEM  Order Confirmed. Yield harvested: $120.00. Returning to sleep.
-```
-
-None of this happened. To anyone watching a demo it reads as the agent having
-just executed a trade and collected $120. This is the single biggest credibility
-risk in the project — worse than a broken feature, because a broken feature is
-honest.
-
-**Scope is wider than one file.** 20 of ~28 components in
-`frontend/app/components/` have no `lib/api` import at all. Confirmed mockups
-still in the tree: `ActiveOverlayContracts.tsx`, `ThoughtProcess.tsx`,
-`TradeLog.tsx`, `PortfolioStats.tsx`, `AssetHoldings.tsx`, `RecentHistory.tsx`,
-`ActiveOverlay.tsx`, `OverlayControl.tsx`, `AgentTerminal.tsx`, `Dashboard.tsx`,
-`StrategyCard.tsx`, `AgentConfiguration.tsx`.
-
-Root cause: two generations of components coexist — mockups from the design phase
-and wired components from integration — with no record of which is which. The
-dashboard renders a mix of both in the same column (`AgentStatusCard` is wired,
-`AgentControl` and `ThoughtProcess` are not).
-
-**Fix:** replace `ThoughtProcess` content with real `reasoning_trace` from
-`/api/agent/run`, or delete it. An empty panel is better than a lying one.
-
----
-
-## 2 · Fundamentals cache is ephemeral — HIGH
+## 1 · Fundamentals cache is ephemeral — HIGH
 
 **Owner:** AI engineering · **File:** `agent/council/fundamentals.py`
 
@@ -64,7 +31,7 @@ This was written and then removed in a reverted batch. It needs redoing.
 
 ---
 
-## 3 · `_order_intents` cannot produce a real contract — HIGH
+## 2 · `_order_intents` cannot produce a real contract — HIGH
 
 **Owner:** backend · **File:** `backend/app/routes/agent.py`
 
@@ -90,7 +57,7 @@ Recommendation: (a).
 
 ---
 
-## 4 · `specials/BACKEND_FRONTEND_API.md` contradicts the code — HIGH
+## 3 · `specials/BACKEND_FRONTEND_API.md` contradicts the code — HIGH
 
 **Owner:** backend
 
@@ -113,7 +80,7 @@ intended design.
 
 ---
 
-## 5 · Council handoff is parsed markdown, unauthenticated — MEDIUM
+## 4 · Council handoff is parsed markdown, unauthenticated — MEDIUM
 
 **Owner:** AI engineering · **File:** `agent/council/handoff.py`
 
@@ -131,7 +98,7 @@ trusting its HANDOFF section — is also still open.
 
 ---
 
-## 6 · Mr. Market has no hysteresis — MEDIUM
+## 5 · Mr. Market has no hysteresis — MEDIUM
 
 **Owner:** AI engineering · **File:** `agent/council/mr_market.py`
 
@@ -145,7 +112,7 @@ exceeded by a margin before switching away from an established regime.
 
 ---
 
-## 7 · Graham INCONCLUSIVE counts as neutral — MEDIUM
+## 6 · Graham INCONCLUSIVE counts as neutral — MEDIUM
 
 **Owner:** AI engineering · **Files:** `graham_principles.py`, `personas.py`
 
@@ -166,28 +133,25 @@ Also reverted; needs redoing.
 
 ---
 
-## 8 · Two "Run Agent" buttons, one endpoint — MEDIUM
+## 7 · Two "Run Agent" entry points, one endpoint — LOW
 
 **Owner:** frontend
 
-`AgentControl.tsx` on `/dashboard` has a `<button>` with **no `onClick` at all** —
-it was never wired, not broken. Meanwhile Terminal's "Run agent (preview)" button
-calls `api.runAgent()` correctly.
+Both `/dashboard` (`AgentControl`) and `/terminal` now call `/api/agent/run`. The
+intended split is a compact trigger with a summary on the dashboard and the
+detailed view in Terminal, but a user could still wonder why two buttons exist and
+why their results differ (they differ only by call time).
 
-Once both work, two buttons hit the same endpoint on two pages and a user will
-reasonably wonder why results differ (they differ only by call time).
+**Fix:** decide the division explicitly, or remove one.
 
-**Fix:** wire `AgentControl` to `api.runAgent()`, and decide the division —
-Dashboard as a compact trigger with a summary, Terminal as the detailed view. Or
-remove one.
-
-The wired version must be honest about reality: show `risk_summary.halted` with
-its reason when the kill-switch is active, and "no order intents" when the list is
-empty — because with issue #3 open, empty is the normal case.
+Both are already honest about what comes back: kill-switch HALT renders with its
+reasons, an empty `order_intents` list says so, and null `option_symbol` /
+`limit_price` render as "contract pending" / "no limit set" rather than a
+fabricated strike — because with issue #2 open, that is the normal case.
 
 ---
 
-## 9 · No backend authentication — MEDIUM (context-dependent)
+## 8 · No backend authentication — MEDIUM (context-dependent)
 
 **Owner:** backend
 
@@ -202,7 +166,7 @@ a shared-secret header on mutating routes.
 
 ---
 
-## 10 · `premium <= 0` unguarded in exit manager — LOW
+## 9 · `premium <= 0` unguarded in exit manager — LOW
 
 **Owner:** AI engineering · **File:** `agent/exit_manager.py`
 
@@ -213,7 +177,7 @@ illiquid option quoting zero would raise `ZeroDivisionError` mid-cycle.
 
 ---
 
-## 11 · No visual verification, no E2E test — LOW (but persistent)
+## 10 · No visual verification, no E2E test — LOW (but persistent)
 
 **Owner:** frontend + QA
 
@@ -231,7 +195,7 @@ dashboard → council → terminal.
 
 ---
 
-## 12 · Kill-switch state is not persisted — LOW
+## 11 · Kill-switch state is not persisted — LOW
 
 **Owner:** AI engineering
 
@@ -244,13 +208,26 @@ in-process state.
 
 ---
 
-## 13 · One test permanently skipped — LOW
+## 12 · One test permanently skipped — LOW
 
 **Owner:** QA
 
 One test has been skipped in every run since the suite was built and its reason
 has not been re-examined. A permanently skipped test is either obsolete or a
 hidden gap; either way it should not sit there silently.
+
+---
+
+## 13 · Four dead `Providers.tsx` stubs — LOW
+
+**Owner:** frontend
+
+`app/{assets,dashboard,settings,terminal}/Providers.tsx` each contain a
+seven-line component that returns `children` unchanged, and none of them is
+imported anywhere. Harmless, but they are noise for the next person reading the
+route folders.
+
+**Fix:** delete them, or give them a purpose.
 
 ---
 
@@ -267,3 +244,10 @@ hidden gap; either way it should not sit there silently.
 | Tests reading real credentials | Autouse `monkeypatch` forces mock mode |
 | 7 penetration-test findings | All fixed, 32 regression tests |
 | Mock account id `PA3CBCJTGBJS` in fixtures | Replaced with `MOCK_ACCOUNT_1` |
+| `ThoughtProcess` rendering a fabricated executed trade and $120 yield | Replaced with real `reasoning_trace` from `/api/agent/run`, or an empty state |
+| `AgentControl` button with no `onClick` — never wired | Calls `api.runAgent()` via `AgentRunProvider`, shared with the reasoning panel |
+| `ActiveOverlayContracts` hardcoded `SPY 520c 15Mar24 / $125.00` row | Filters real option positions, parses OCC symbols for strike/expiry/DTE |
+| `AgentConfiguration` — second config panel whose Save called `alert()` and persisted nothing | Removed; `StrategyConfigCard` owns every tunable it claimed |
+| 11 never-rendered mockup files (`ActiveOverlay`, `TradeLog`, `OverlayControl`, `AgentTerminal`, `Dashboard`, `StrategyCard`, `ai/`, `portfolio/`, `strategy/`, `trading/`, `ui/`) | Deleted, −1290 lines |
+| No brand identity — no favicon, no mark, no OG image | `brand/Logo.tsx`, `app/icon.tsx`, `app/opengraph-image.tsx`, OG/Twitter metadata |
+| `recharts` in dependencies but unused | Four charts added: equity sparkline, score gauge, allocation donut, yield bars |

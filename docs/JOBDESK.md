@@ -26,7 +26,7 @@ asking. This is enforced socially, not by hooks.
 
 ### Frontend (`axzss`)
 **Owns:** `frontend/**` — `app/`, `lib/`, `next.config.js`, `tailwind.config.js`,
-`package.json`.
+`package.json`. Layer documentation: [`FRONTEND.md`](FRONTEND.md).
 
 **Must not edit:** `agent/**`, `backend/**`.
 
