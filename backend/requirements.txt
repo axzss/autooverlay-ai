@@ -2,4 +2,9 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 pydantic>=2.6
 httpx>=0.26
+# agent/council/fundamentals.py imports requests inside _get_session().
+# Without it the import fails silently, every fundamental field comes back
+# None, and the council scores every symbol identically (53.6 / HOLD) with
+# bullets like "Margins unavailable" — a data outage that reads as analysis.
+requests>=2.31
 pytest>=8.0

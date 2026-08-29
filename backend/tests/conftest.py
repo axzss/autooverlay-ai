@@ -21,6 +21,22 @@ os.environ.setdefault("APCA_API_KEY_ID", "TEST_KEY_ID")
 os.environ.setdefault("APCA_API_SECRET_KEY", "TEST_SECRET")
 os.environ.setdefault("ALPACA_PAPER", "true")
 
+# alpaca_client.is_configured() reads ALPACA_KEY / ALPACA_SECRET / ALPACA_BASE_URL
+# — NOT the APCA_* names set above. If a developer has exported real credentials
+# (e.g. `set -a && . ./.env` before running a live check), those leak into pytest
+# and every route flips to live mode: four tests then fail asserting
+# mode == "mock", and the suite would silently make real network calls.
+# Strip them for the whole session so test outcomes never depend on the shell.
+for _var in (
+    "ALPACA_KEY",
+    "ALPACA_SECRET",
+    "ALPACA_BASE_URL",
+    "APCA_API_DATA_URL",
+    "ALPACA_ENDPOINT",
+    "ALPACA_DATA_ENDPOINT",
+):
+    os.environ.pop(_var, None)
+
 try:
     from fastapi.testclient import TestClient  # noqa: F401
     from backend.app import main as main_module  # noqa: F401

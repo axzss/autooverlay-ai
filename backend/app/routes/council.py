@@ -66,11 +66,23 @@ def _snapshot_from_bars(symbol: str, bars: list[dict]) -> dict | None:
         "drawdown_from_52w_high_pct": round((price / w52_high - 1) * 100, 1),
         "w52_high": w52_high,
         "w52_low": min(closes),
+        # classify_market_mood() needs a price series to judge run-up and
+        # realized vol. Without it Mr. Market reports mood "unknown" and the
+        # cycle loses its market-context step entirely.
+        "recent_prices": closes[-60:],
     }
 
 
 def _fetch_live_snapshots(symbols: List[str]) -> dict[str, dict]:
-    """Fetch snapshots from the Alpaca data API; per-symbol failures skipped."""
+    """Fetch snapshots from the Alpaca data API; per-symbol failures skipped.
+
+    Bars give price, 30d vol and drawdown. Those alone are not enough for the
+    council: Buffett, Graham, Lynch and Munger all score on fundamentals, so
+    without them every symbol scored an identical 53.6 / HOLD with bullets like
+    "Margins unavailable" — a data outage that reads as analysis. Each snapshot
+    is therefore enriched with the fundamentals provider (24h cached, never
+    fabricated: unfetched fields stay None).
+    """
     client = AlpacaClient()
     out: dict[str, dict] = {}
     for sym in symbols:
@@ -79,9 +91,42 @@ def _fetch_live_snapshots(symbols: List[str]) -> dict[str, dict]:
             snap = _snapshot_from_bars(sym, snaps)
         except RuntimeError:
             continue
-        if snap:
-            out[sym] = snap
+        if not snap:
+            continue
+        try:
+            from agent.council.fundamentals import build_snapshot_with_fundamentals
+            snap = build_snapshot_with_fundamentals(sym, snap)
+        except Exception:
+            pass  # bar-derived fields still usable; fundamentals stay absent
+        out[sym] = snap
     return out
+
+
+def _live_cycle_snapshots(positions: List[dict],
+                          candidates: Optional[List[str]]) -> dict[str, dict]:
+    """Bar-derived snapshots for the daily cycle in live mode.
+
+    Covers the council universe plus every held symbol, so the cycle gets the
+    same price/vol series that GET /council/assess already builds. SPY is always
+    included: classify_market_mood() reads its ``recent_prices``, and without it
+    market mood is "unknown".
+
+    Never raises — a failed fetch degrades to a missing symbol, which the cycle
+    already reports via ``snapshot_symbols_missing``.
+    """
+    wanted: List[str] = list(COUNCIL_UNIVERSE)
+    for sym in [str(p.get("symbol", "")).upper() for p in positions]:
+        if sym and sym not in wanted:
+            wanted.append(sym)
+    for sym in [c.upper() for c in (candidates or [])]:
+        if sym and sym not in wanted:
+            wanted.append(sym)
+    if "SPY" not in wanted:
+        wanted.append("SPY")
+    try:
+        return _fetch_live_snapshots(wanted)
+    except Exception:
+        return {}
 
 
 def _assessment_to_dict(symbol: str) -> dict:
@@ -227,12 +272,23 @@ async def council_cycle(req: CouncilCycleRequest) -> dict:
         **(req.portfolio_state_overrides or {}),
     }
 
+    # run_daily_cycle builds its symbol list from held positions + candidates.
+    # With an empty portfolio and no explicit candidates that list is empty, so
+    # the cycle ran all seven steps and produced nothing — no assessments, no
+    # directives, and Mr. Market stuck at "unknown" — while GET /council/assess
+    # returned eight assessments from the same credentials. Default to the
+    # council universe so both endpoints agree.
+    cycle_candidates = req.candidates or list(COUNCIL_UNIVERSE)
+
     return run_daily_cycle(
         positions, cash,
         open_option_positions=open_option_positions,
-        candidates=req.candidates,
+        candidates=cycle_candidates,
+        # Live mode: inject bar-derived + fundamentals-enriched snapshots.
+        # The provider alone returns no price/vol series, so SPY would carry no
+        # recent_prices and market mood could never be classified.
         candidate_snapshots={s["symbol"]: s for s in mock_council_snapshots()}
-        if mode == "mock" else None,
+        if mode == "mock" else _live_cycle_snapshots(positions, cycle_candidates),
         portfolio_state_overrides=state_overrides,
         allow_provider=is_configured(),
     )
