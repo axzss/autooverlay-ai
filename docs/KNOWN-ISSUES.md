@@ -177,7 +177,7 @@ illiquid option quoting zero would raise `ZeroDivisionError` mid-cycle.
 
 ---
 
-## 10 · No visual verification, no E2E test — LOW (but persistent)
+## 10 · No visual verification, no E2E test — MEDIUM (and now worse)
 
 **Owner:** frontend + QA
 
@@ -189,9 +189,35 @@ Chrome hit root-sandbox → missing `DISPLAY` → websocket-origin-403 walls.
 `tsc` clean + `npm run build` passing + HTTP 200 is not the same as "it looks
 right". A page can return 200 while rendering an error boundary.
 
+**Raised from LOW because motion has landed on top of it.** A brand mark, four
+charts and a full framer-motion pass now sit on a layout nobody has seen.
+Animation is the worst possible category for this gap: a type check cannot detect
+an easing curve that feels wrong, a stagger that crawls, a drawer sliding from
+the wrong edge, or a `layoutId` marker jumping instead of gliding. Every one of
+those compiles perfectly.
+
 **Fix:** open the tunnel in a real browser and check by hand — faster than fixing
 headless Chrome in this box. Then add one Playwright smoke test:
 dashboard → council → terminal.
+
+Also untested: `prefers-reduced-motion`. It is implemented in every primitive but
+has never been exercised with the OS setting actually enabled.
+
+---
+
+## 10b · Motion bundle cost is unmitigated — LOW
+
+**Owner:** frontend
+
+framer-motion adds roughly 34 kB to each page's first load (`/assets` 111→145 kB,
+`/council` 112→146 kB, `/terminal` 115→149 kB, `/dashboard` 221→255 kB). Shared JS
+is unchanged at 87.3 kB, so this is per-route weight.
+
+Acceptable for a hackathon demo on a local network; not something to leave
+unexamined if the app is ever served to real users on mobile.
+
+**Fix if it matters:** `LazyMotion` with `domAnimation` features, or split the
+primitives module so pages that only need `Reveal` do not pull the full library.
 
 ---
 

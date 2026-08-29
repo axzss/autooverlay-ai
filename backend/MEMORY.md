@@ -2,7 +2,7 @@
 
 ## Project purpose
 
-AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Agents Hackathon Track 04. The backend exposes portfolio, strategy-screening, configuration, council, and trade APIs for the Next.js frontend.
+AutoOverlay AI is an agentic options-income overlay for the Alpaca AI Trading Agents Hackathon, Options Alpha Agents track. The backend exposes portfolio, strategy-screening, configuration, council, and trade APIs for the Next.js frontend.
 
 ## Current architecture
 

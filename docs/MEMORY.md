@@ -399,6 +399,60 @@ curve would have looked far better and meant nothing. Choosing the honest versio
 is correct, but it is worth noticing that the frontend is now working around a gap
 the backend could close.
 
+### `02ccf74` — frontend documentation
+Added `docs/FRONTEND.md`; reconciled `KNOWN-ISSUES`, `ROADMAP`, `MEMORY`,
+`README`, `TESTING`, `ARCHITECTURE`, `docs/README` and `JOBDESK` so no document
+still described the pre-`0252f4e` frontend.
+
+### `70c0742` — framer-motion pass across every page
+**14 files, +631 / −198.** Author: `axzss`.
+
+`framer-motion` had been sitting in `package.json` unused since the project
+started. Rather than per-component variants, added
+`components/motion/primitives.tsx` as the single source of timing: `fadeUp` /
+`fade` / `slideIn` / `collapse`, `staggerParent()`, `Reveal` / `RevealGroup` /
+`RevealItem`, `pressable`, `EASE`, `DURATION`.
+
+House rules encoded there: 160–260ms, 4–10px of travel, ease-out never spring,
+opacity and transform only, and `prefers-reduced-motion` checked **inside every
+primitive** rather than bolted on globally.
+
+Per surface: `MobileSidebar` became a real drawer under `AnimatePresence` (the
+early `if (!open) return null` had to be removed or it vanishes instead of
+animating out); `Sidebar`'s active marker is now a `layoutId` element that slides
+between items; `MetricCard` crossfades its value on change; Dashboard, Assets and
+Settings stagger their cards; `CouncilBoard` staggers and `ScoreGauge` sweeps its
+arc from zero; `TerminalClient` staggers directives (capped at 240ms) and animates
+its banners; `YieldBars` grow from zero; the logo draws each layer via
+`pathLength`.
+
+**Criticism.** Two things.
+
+First, the same gap as the previous two days, now materially worse: **motion
+shipped without anyone seeing it move.** Animation is the worst possible category
+for an unverified UI — a type check cannot detect an easing curve that feels
+wrong, a stagger that crawls, a drawer sliding from the wrong edge, or a
+`layoutId` marker jumping instead of gliding. All of it compiles perfectly. The
+issue was raised from LOW to MEDIUM in `KNOWN-ISSUES.md` for that reason.
+`prefers-reduced-motion` is implemented everywhere and has never been exercised
+with the setting on.
+
+Second, the bundle cost is real and was not sized before committing to the
+library: **~34 kB added to every page's first load** (`/assets` 111→145 kB,
+`/council` 112→146 kB, `/terminal` 115→149 kB, `/dashboard` 221→255 kB). Shared JS
+is unchanged, so this is per-route weight. Fine for a demo, not something to
+leave unexamined for real mobile users. `LazyMotion` was not attempted.
+
+### Track correction
+The hackathon presents the entry as **Options Alpha Agents**, not "Track 04" —
+there is no track-number option in the submission UI. Renamed `TRACK_04.md` →
+`TRACK.md` and corrected every reference: root `README`, `PROJECT_STATUS`,
+`backend/MEMORY.md`, the page title in `layout.tsx`, the header wordmark (which
+read "AutoOverlay AI | Track 4"), and the OG image subtitle. Verified with a
+repo-wide grep that no "Track 04" or "Track 4" string remains.
+
+Worth noting as a process point: that label had been carried in seven places since
+the first commit and nobody checked it against the actual submission form.
 
 ---
 
@@ -406,22 +460,25 @@ the backend could close.
 
 | Metric | Value |
 |---|---|
-| Commits on `master` | 47 |
+| Commits on `master` | 49 |
 | Tests | 237 collected, 236 pass, 1 skipped |
 | Backend routes | 11, zero TODOs |
 | Frontend pages | 5, plus `/icon` and `/opengraph-image` |
-| Frontend components | 20 (12 mockup files deleted) |
+| Frontend components | 21 (12 mockup files deleted, motion primitives added) |
+| Frontend first-load JS | 145–255 kB per page (87.3 kB shared) |
 | Council personas | 6 |
 | Symbol universe | AAPL, MSFT, NVDA, TSLA, SPY, QQQ, JPM, KO |
 | Security findings | 7 found, 7 fixed, 32 regression tests |
 | Secrets in tree or history | None (verified by grep + fresh clone) |
+| Hackathon track | Options Alpha Agents |
 
 ## Standing criticisms not yet resolved
 
 1. **No visual verification, no E2E test.** Nobody has ever confirmed the UI
-   renders correctly, by eye or by automation — and the brand mark plus four
-   charts have now shipped on top of that unverified layout. This is the largest
-   remaining unknown in the project.
+   renders correctly, by eye or by automation — and a brand mark, four charts and
+   a full framer-motion pass have now shipped on top of that unverified layout.
+   Motion is the worst category for this gap, because wrong easing and wrong
+   stagger compile perfectly. Largest remaining unknown in the project.
 2. **Fundamentals are ephemeral.** The cache lives in `/tmp`. A restart drops
    the council from HIGH to LOW confidence and reverts NVDA/MSFT to HOLD. The
    fix was written and then reverted; it needs redoing.
@@ -438,7 +495,12 @@ the backend could close.
 6. **The backend exposes almost no history.** `/api/portfolio` gives
    `last_equity` and `equity` — two points. The equity sparkline is honest about
    that, but the frontend is working around a gap the backend could close.
+7. **Motion bundle cost unmitigated.** ~34 kB per page, no `LazyMotion` or
+   code-splitting attempted.
+8. **`prefers-reduced-motion` never tested with the setting on.** Implemented in
+   every primitive; exercised by nobody.
 
 Resolved since the last revision: the fabricated trade log, the unwired
-`AgentControl` button, the hardcoded overlay-contracts row, and eleven
-never-rendered mockup files.
+`AgentControl` button, the hardcoded overlay-contracts row, eleven
+never-rendered mockup files, and the incorrect "Track 04" label carried in seven
+places.

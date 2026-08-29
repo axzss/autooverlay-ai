@@ -8,7 +8,7 @@ pytest agent/tests backend/tests -q
 ```bash
 cd frontend
 npx tsc -p tsconfig.json --noEmit   # type check
-npm run build                       # 9/9 pages
+npm run build                       # 11/11 pages incl. /icon and /opengraph-image
 ```
 
 **No test touches the network.** Fundamentals tests use monkeypatched fetchers,
@@ -110,7 +110,9 @@ Being specific here is more useful than a coverage percentage.
 | Gap | Risk |
 |---|---|
 | **No E2E test** | Nothing verifies the UI actually renders. A page can return 200 while showing an error boundary |
-| **No visual verification, ever** | `browser_exec` could not attach, Playwright is not installed, headless Chrome hit sandbox → `DISPLAY` → websocket-origin walls in sequence. Nobody has confirmed the UI looks correct — and a brand mark plus four charts have now shipped on top of that. Charts are exactly where a type check tells you least: an inverted domain or unreadable contrast compiles perfectly |
+| **No visual verification, ever** | `browser_exec` could not attach, Playwright is not installed, headless Chrome hit sandbox → `DISPLAY` → websocket-origin walls in sequence. Nobody has confirmed the UI looks correct — and a brand mark, four charts and a full framer-motion pass have now shipped on top of that. Motion and charts are exactly where a type check tells you least: an inverted domain, unreadable contrast, wrong easing or a crawling stagger all compile perfectly |
+| **`prefers-reduced-motion` untested** | Implemented in every motion primitive, never exercised with the OS setting enabled |
+| **`_pick_option_contract` untested** | The backend's most intricate function — OCC parsing, abs-delta filtering, DTE windowing, sorting — has zero coverage. Two sign bugs in it reached master and were caught by human diff review |
 | **No backtest** | Nothing establishes that TP 60% / SL 200% is profitable. Theory only |
 | **No load or concurrency test** | Behaviour under parallel cycle requests is unknown |
 | **No real assignment path** | Assignment risk is reasoned about, never exercised |

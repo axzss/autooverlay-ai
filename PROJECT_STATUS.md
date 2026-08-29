@@ -19,7 +19,7 @@
 
 ## In Progress
 - Deep frontend QA / accessibility polish
-- Track 04 compliance audit
+- Options Alpha Agents track compliance audit
 - Wire real Alpaca data into backend routes
 
 ## Pending

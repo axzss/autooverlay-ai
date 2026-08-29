@@ -23,8 +23,9 @@ frontend/
 │   ├── council/page.tsx        six-persona verdicts
 │   ├── settings/page.tsx       live StrategyConfig editing
 │   ├── components/
-│   │   ├── brand/Logo.tsx      LogoMark + LogoLockup
+│   │   ├── brand/Logo.tsx      LogoMark + LogoLockup (self-drawing)
 │   │   ├── charts/             EquitySparkline, ScoreGauge, AllocationDonut, YieldBars
+│   │   ├── motion/primitives.tsx  shared variants + Reveal wrappers
 │   │   ├── council/            CouncilBoard
 │   │   ├── dashboard/          AgentStatusCard
 │   │   ├── terminal/           TerminalClient, AgentFeedCard
@@ -161,6 +162,75 @@ sync with the SVG.
 > `display: 'flex'`, and `<br/>` is not laid out. The OG route failed to
 > prerender until each text line became its own flex div.
 
+On mount each layer of the mark draws itself via `pathLength` — baseline first,
+then the two overlays — so the mark builds the way the product does. One pass, no
+looping: a logo that animates forever is a distraction. Pass `animate={false}` for
+static contexts.
+
+---
+
+## Motion
+
+`framer-motion` was already in `package.json` and entirely unused.
+`components/motion/primitives.tsx` is the single source of animation timing, so
+values cannot drift between pages. Import from there; do not hand-roll variants
+per component.
+
+### House rules
+
+| Rule | Reason |
+|---|---|
+| 160–260ms | Longer reads as lag in a trading UI |
+| 4–10px of travel | Bigger slides feel like a marketing site |
+| Ease out `[0.22, 1, 0.36, 1]`, never spring | Overshoot on financial data looks unserious |
+| Opacity and transform only | Animating layout-affecting properties causes reflow |
+| `prefers-reduced-motion` honoured **per primitive** | Checked inside each one via `useReducedMotion`, not bolted on globally — reduced motion collapses to a plain `div` |
+
+### Exports
+
+- Variants: `fadeUp`, `fade`, `slideIn`, `collapse`
+- `staggerParent(stagger, delayChildren)`
+- Wrappers: `Reveal`, `RevealGroup`, `RevealItem`
+- `pressable` — scale 1.01 hover / 0.98 tap for buttons
+- `EASE`, `DURATION` (`fast` 0.16, `base` 0.22, `slow` 0.32)
+- Re-exports `motion` and `useReducedMotion` so components need one import
+
+### Per surface
+
+| Surface | Motion |
+|---|---|
+| `MobileSidebar` | `AnimatePresence` owns mount/unmount — the early `if (!open) return null` had to go, otherwise the drawer vanishes instead of animating out. Backdrop fades, panel slides from `-100%`, nav items stagger at 35ms |
+| `Sidebar` | Active emerald marker is a `layoutId` element, so it **slides** between items on route change rather than disappearing and reappearing |
+| `MetricCard` | Value crossfades on change, keyed on the value itself, so a refresh reads as an update rather than a silent swap. Fixed-height wrapper prevents reflow |
+| Dashboard / Assets / Settings | Staggered card entrances via `RevealGroup` |
+| `CouncilBoard` | Cards stagger; verdict list expands by height with rows sliding in; chevron rotates instead of swapping icons |
+| `ScoreGauge` | Arc sweeps from zero on mount. 400ms — deliberately above the house ceiling, because a sweep needs to be legible |
+| `TerminalClient` | Directive cards stagger, **capped at 240ms** so a long list does not crawl; reasoning traces expand by height; error and `live_error` banners animate in and out |
+| `AgentControl` / `ThoughtProcess` | HALT and error banners animate; trace lines slide in at 35ms capped at 400ms; run summary fades up |
+| `YieldBars` | Bars grow from zero, staggered top to bottom, so the ranking reads as it fills |
+
+### Cost
+
+Shared JS is unchanged at 87.3 kB, but per-page first load rose roughly 34 kB:
+
+| Page | Before | After |
+|---|---|---|
+| `/assets` | 111 kB | 145 kB |
+| `/council` | 112 kB | 146 kB |
+| `/terminal` | 115 kB | 149 kB |
+| `/dashboard` | 221 kB | 255 kB |
+
+That is the price of the library. Worth naming rather than discovering later.
+
+### Pitfalls found doing this
+
+- `Transition['ease']` is not exported usefully in framer-motion 10 — typing the
+  cubic array as `as const` is what compiles.
+- Any component importing from `primitives.tsx` becomes a client component.
+  `Logo.tsx` needed `'use client'` added for this reason.
+- Repeated dev-server restarts while editing corrupt `.next` and produce a 500
+  with `__webpack_modules__[moduleId] is not a function`. `rm -rf .next`.
+
 ---
 
 ## Charts
@@ -273,6 +343,11 @@ Last verified state: `tsc` clean; build 11/11 pages including `/icon` and
 `/opengraph-image`; all five pages plus both image routes 200; all six API
 endpoints 200 through the dev proxy.
 
+**Motion is exempt from none of this and covered by none of it.** A type check
+cannot tell you an easing curve is wrong, a stagger is too slow, or a drawer
+animates in the wrong direction. Animation is the part of this layer with the
+weakest verification story.
+
 > `/dashboard` returning 500 with
 > `TypeError: __webpack_modules__[moduleId] is not a function` is a corrupt
 > `.next` cache from repeated dev-server restarts, not a code bug.
@@ -291,6 +366,9 @@ endpoints 200 through the dev proxy.
 - `tabular-nums` on every numeric column so digits do not jitter between renders.
 - Mobile navigation is a `useState` drawer. No bottom nav.
 - One app root. No `src/app`.
+- **Animation comes from `components/motion/primitives.tsx`.** Do not write
+  per-component variants; add to the primitives module if something is missing,
+  so timing stays consistent and `prefers-reduced-motion` stays honoured.
 
 ---
 
@@ -300,16 +378,23 @@ See [`ROADMAP.md`](ROADMAP.md) for ordering.
 
 1. **No visual verification has ever happened.** `browser_exec` cannot attach,
    Playwright is not installed, and headless Chrome hit root-sandbox → missing
-   `DISPLAY` → websocket-origin-403 in sequence. Nobody has looked at this UI.
+   `DISPLAY` → websocket-origin-403 in sequence. Nobody has looked at this UI —
+   and animation now sits on top of that, entirely unwatched. Easing, stagger
+   timing and drawer direction are reasoned, not observed.
 2. **No E2E test.** One Playwright smoke run (dashboard → council → terminal)
    would catch the class of regression that a type check cannot.
 3. **No unit tests.** `normalizeScreenings`, `toFeedEntry`, `riskBadgeClasses`
    are pure functions with no coverage.
 4. **Lighthouse / a11y unrun.** `aria-label`s were added to icon-only buttons,
-   but contrast ratios and focus states have not been audited.
-5. **Two "run agent" entry points.** Dashboard and Terminal both call
+   but contrast ratios and focus states have not been audited. Motion adds a
+   dimension here too: `prefers-reduced-motion` is implemented but has never
+   been tested with the setting actually on.
+5. **Motion bundle cost is unmitigated.** ~34 kB per page. No code-splitting or
+   `LazyMotion` attempt yet; if page weight becomes a concern, that is where to
+   look first.
+6. **Two "run agent" entry points.** Dashboard and Terminal both call
    `/api/agent/run`. Intended split is compact trigger vs detailed view, but a
    user could still wonder why two buttons exist.
-6. **Four one-line `Providers.tsx` stubs** sit in the route folders
+7. **Four one-line `Providers.tsx` stubs** sit in the route folders
    (`app/{assets,dashboard,settings,terminal}/Providers.tsx`), each returning
    `children` unchanged and imported by nothing. Harmless, but they are noise.

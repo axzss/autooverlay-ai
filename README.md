@@ -1,7 +1,7 @@
 # AutoOverlay AI
 
 Agentic options-income overlay for existing equity portfolios — built for the
-**Alpaca AI Trading Agents Hackathon, Track 04**.
+**Alpaca AI Trading Agents Hackathon, Options Alpha Agents track**.
 
 Most investors hold equity that generates nothing while it sits there. Running an
 options overlay against it by hand is time-consuming and easy to get wrong.
@@ -141,7 +141,7 @@ Details: [`docs/security_review.md`](docs/security_review.md)
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System diagram, data flow |
 | [`docs/AI-ENGINEER.md`](docs/AI-ENGINEER.md) | Agent layer in depth |
 | [`docs/HEDGE-FUND-COUNCIL.md`](docs/HEDGE-FUND-COUNCIL.md) | The six personas, Graham, Mr. Market |
-| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Next.js layer: API client, layout, brand, charts |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | Next.js layer: API client, layout, brand, charts, motion |
 | [`docs/RISK-MANAGEMENT.md`](docs/RISK-MANAGEMENT.md) | Kill-switch, caps, exits, tiers |
 | [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md) | Every endpoint, **verified** shapes |
 | [`docs/MEMORY.md`](docs/MEMORY.md) | Dated build log with criticism per milestone |

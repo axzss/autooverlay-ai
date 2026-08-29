@@ -8,7 +8,7 @@ Everything written down about AutoOverlay AI. Start here.
 | [`JOBDESK.md`](JOBDESK.md) | Who owns what, per-role scope boundaries, handoff rules |
 | [`AI-ENGINEER.md`](AI-ENGINEER.md) | The agent layer in depth: strategies, decision engine, exits, orchestration |
 | [`HEDGE-FUND-COUNCIL.md`](HEDGE-FUND-COUNCIL.md) | Investment Council: 6 personas, Graham-from-the-book, Mr. Market, dissent |
-| [`FRONTEND.md`](FRONTEND.md) | Next.js layer: API client, layout, brand, charts, agent panels |
+| [`FRONTEND.md`](FRONTEND.md) | Next.js layer: API client, layout, brand, charts, motion |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System diagram, data flow, module responsibilities |
 | [`API-CONTRACT.md`](API-CONTRACT.md) | Every endpoint with its **actual verified** response shape |
 | [`RISK-MANAGEMENT.md`](RISK-MANAGEMENT.md) | Kill-switch, caps, exit rules, tier policy, and what each is for |

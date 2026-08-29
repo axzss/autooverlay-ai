@@ -7,7 +7,7 @@
 │  FRONTEND — Next.js App Router, Tailwind                         │
 │  Dashboard · Assets · Terminal · Council · Settings              │
 │  frontend/lib/api.ts  (typed client, all paths under /api)       │
-│  brand/ · charts/ · AgentRunProvider   → see docs/FRONTEND.md    │
+│  brand/ · charts/ · motion/ · AgentRunProvider  → docs/FRONTEND.md │
 └────────────────────────────┬─────────────────────────────────────┘
                              │  HTTP, JSON
                              │  dev: next.config.js rewrites /api/* → :8000

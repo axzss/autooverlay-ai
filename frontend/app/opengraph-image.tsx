@@ -50,7 +50,7 @@ export default function OpengraphImage() {
               AutoOverlay AI
             </div>
             <div style={{ display: 'flex', fontSize: 20, color: '#94a3b8', letterSpacing: 2 }}>
-              ALPACA HACKATHON · TRACK 04
+              ALPACA HACKATHON · OPTIONS ALPHA AGENTS
             </div>
           </div>
         </div>

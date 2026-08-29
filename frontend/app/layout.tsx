@@ -14,7 +14,7 @@ const firaCode = Fira_Code({
 })
 
 export const metadata = {
-  title: 'AutoOverlay AI | Track 4',
+  title: 'AutoOverlay AI | Options Alpha Agents',
   description:
     'Agentic options-income overlay for existing equity portfolios. Six-persona investment council, book-accurate Graham defensive tests, kill-switch first, no order submitted without approval.',
   applicationName: 'AutoOverlay AI',

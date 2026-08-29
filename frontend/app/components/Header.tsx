@@ -19,7 +19,7 @@ export default function Header() {
       <div className="flex items-center gap-4 sm:gap-6">
         <Link href="/dashboard" className="flex items-center gap-2">
           <LogoMark className="h-8 w-8" />
-          <span className="font-semibold text-[#22c55e] text-sm leading-tight">AutoOverlay AI | Track 4</span>
+          <span className="font-semibold text-[#22c55e] text-sm leading-tight">AutoOverlay AI</span>
         </Link>
       </div>
 

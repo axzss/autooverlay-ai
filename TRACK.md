@@ -1,12 +1,13 @@
-# Track 04 — What It Is
+# Track — Options Alpha Agents
 
 ## Hackathon Context
 - Event: Alpaca AI Trading Agents Hackathon
 - Theme: Build AI trading agents using Alpaca Trading API, MCP server, and CLI
 - Mode: Paper trading environment — simulated funds, real market data
+- Track entered: **Options Alpha Agents**
 
-## Track 04 Focus
-Track 04 is the **AI options-income overlay** track: build an agentic system that
+## Track Focus
+Options Alpha Agents is the options-strategy track: build an agentic system that
 - screens existing portfolio holdings,
 - evaluates options overlay strategies such as covered calls and cash-secured puts,
 - produces reasoned trade recommendations with risk scoring,
@@ -30,4 +31,5 @@ AutoOverlay AI targets this track directly:
 - Frontend for monitoring and configuration
 - Python strategy engine for CSP / covered call screening
 - Decision engine with risk scoring
-- Alpaca paper trading integration
+- Six-persona Investment Council gating every entry
+- Alpaca paper trading integration, no order submitted without approval
