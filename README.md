@@ -153,7 +153,7 @@ Details: [`docs/security_review.md`](docs/security_review.md)
 
 | Person | GitHub | Owns |
 |---|---|---|
-| GreyArch | [`axzss`](https://github.com/axzss) | Frontend |
+| Aditya Maulana | [`axzss`](https://github.com/axzss) | Frontend |
 | Zacky Muhammad Dinata | [`zmdinata`](https://github.com/zmdinata) | AI engineering + council |
 | Aji Nur Aji | [`AjiNurAji`](https://github.com/AjiNurAji) | Backend |
 

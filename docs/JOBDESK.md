@@ -8,7 +8,7 @@ frontend for a day, and a commit that touched files outside its brief.
 
 | Person | GitHub | Commit identity | Owns |
 |---|---|---|---|
-| **GreyArch** | `axzss` | `axzss <banksadits01122005@gmail.com>` | Frontend — `frontend/**` |
+| **Aditya Maulana** | `axzss` | `axzss <banksadits01122005@gmail.com>` | Frontend — `frontend/**` |
 | **Zacky Muhammad Dinata** | `zmdinata` | `zmdiata <zmdinata@gmail.com>` | AI engineering + hedge-fund council — `agent/**`, `docs/**` |
 | **Aji Nur Aji** | `AjiNurAji` | `AjiNurAji <ajinuraji090306@gmail.com>` | Backend — `backend/**`, `specials/**` |
 
