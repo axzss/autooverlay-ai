@@ -4,6 +4,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ChevronDown, Gavel, RefreshCw, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import ScoreGauge from '@/components/charts/ScoreGauge'
+import { AnimatePresence } from 'framer-motion'
+import {
+  motion,
+  useReducedMotion,
+  EASE,
+  DURATION,
+  RevealGroup,
+  RevealItem,
+} from '@/components/motion/primitives'
 import {
   api,
   type CouncilAssessResponse,
@@ -40,6 +49,7 @@ function stanceChip(stance: string) {
 const MOCK_SNAPSHOT: CouncilResponse = { mode: 'mock', count: 0, assessments: [] }
 
 export default function CouncilBoard() {
+  const reduce = useReducedMotion()
   const [data, setData] = useState<CouncilResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -115,11 +125,11 @@ export default function CouncilBoard() {
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <RevealGroup className="grid gap-4 md:grid-cols-2" stagger={0.045}>
           {(data?.assessments ?? []).map((a) => {
             const isOpen = expanded === a.symbol
             return (
-              <div
+              <RevealItem
                 key={a.symbol}
                 className="rounded-lg border border-[#1e293b] bg-[#0f172a] p-4"
               >
@@ -182,47 +192,73 @@ export default function CouncilBoard() {
                 <button
                   onClick={() => setExpanded(isOpen ? null : a.symbol)}
                   className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-[#22c55e] hover:underline"
+                  aria-expanded={isOpen}
                 >
                   <Gavel className="h-3.5 w-3.5" />
                   {isOpen ? 'Hide' : 'Show'} persona verdicts ({a.verdicts.length})
-                  <ChevronDown
-                    className={cn('h-3.5 w-3.5 transition-transform', isOpen && 'rotate-180')}
-                  />
+                  <motion.span
+                    className="block"
+                    animate={{ rotate: isOpen ? 180 : 0 }}
+                    transition={reduce ? { duration: 0 } : { duration: DURATION.fast, ease: EASE }}
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </motion.span>
                 </button>
 
-                {isOpen && (
-                  <ul className="mt-2 space-y-2 border-t border-[#1e293b] pt-2">
-                    {a.verdicts.map((v, i) => (
-                      <li key={i} className="text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-[#e2e8f0]">{v.persona}</span>
-                            <span
-                              className={cn(
-                                'rounded border px-1.5 py-px text-[10px] font-semibold',
-                                stanceChip(v.stance),
-                              )}
-                            >
-                              {v.stance.replace('_', ' ')}
-                            </span>
-                          </div>
-                          <span className={cn('font-mono font-bold', scoreColor(v.score))}>
-                            {Math.round(v.score)}
-                          </span>
-                        </div>
-                        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[#94a3b8]">
-                          {(v.bullets ?? []).map((b, j) => (
-                            <li key={j}>{b}</li>
-                          ))}
-                        </ul>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      key="verdicts"
+                      initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      animate={reduce ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                      exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                      transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+                      className="overflow-hidden"
+                    >
+                      <ul className="mt-2 space-y-2 border-t border-[#1e293b] pt-2">
+                        {a.verdicts.map((v, i) => (
+                          <motion.li
+                            key={i}
+                            className="text-xs"
+                            initial={reduce ? false : { opacity: 0, x: -4 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={
+                              reduce
+                                ? { duration: 0 }
+                                : { duration: DURATION.fast, ease: EASE, delay: i * 0.03 }
+                            }
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-[#e2e8f0]">{v.persona}</span>
+                                <span
+                                  className={cn(
+                                    'rounded border px-1.5 py-px text-[10px] font-semibold',
+                                    stanceChip(v.stance),
+                                  )}
+                                >
+                                  {v.stance.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <span className={cn('font-mono font-bold', scoreColor(v.score))}>
+                                {Math.round(v.score)}
+                              </span>
+                            </div>
+                            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[#94a3b8]">
+                              {(v.bullets ?? []).map((b, j) => (
+                                <li key={j}>{b}</li>
+                              ))}
+                            </ul>
+                          </motion.li>
+                        ))}
+                      </ul>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </RevealItem>
             )
           })}
-        </div>
+        </RevealGroup>
       )}
     </div>
   )

@@ -1,5 +1,7 @@
 'use client'
 
+import { motion, useReducedMotion, EASE } from '@/components/motion/primitives'
+
 /**
  * Horizontal yield comparison. Deliberately hand-rolled divs rather than a
  * recharts BarChart: at this size a chart library adds axes, margins and tooltips
@@ -16,6 +18,7 @@ export interface YieldBar {
 }
 
 export default function YieldBars({ bars }: { bars: YieldBar[] }) {
+  const reduce = useReducedMotion()
   const clean = bars
     .filter((b) => Number.isFinite(b.value))
     .sort((a, b) => b.value - a.value)
@@ -29,16 +32,25 @@ export default function YieldBars({ bars }: { bars: YieldBar[] }) {
 
   return (
     <ul className="space-y-1.5">
-      {clean.map((b) => {
+      {clean.map((b, i) => {
         const pct = (Math.abs(b.value) / max) * 100
         const colour = b.flagged ? '#f59e0b' : '#22c55e'
         return (
           <li key={b.label} className="flex items-center gap-2">
             <span className="w-14 shrink-0 truncate text-xs text-[#e2e8f0]">{b.label}</span>
             <span className="h-2 flex-1 overflow-hidden rounded-sm bg-[#1e293b]">
-              <span
-                className="block h-full rounded-sm"
-                style={{ width: `${Math.max(pct, 2)}%`, background: colour }}
+              {/* Bars grow from zero, staggered top to bottom, so the ranking
+                  reads as it fills in. */}
+              <motion.span
+                className="block h-full rounded-sm origin-left"
+                style={{ background: colour }}
+                initial={reduce ? false : { width: 0 }}
+                animate={{ width: `${Math.max(pct, 2)}%` }}
+                transition={
+                  reduce
+                    ? { duration: 0 }
+                    : { duration: 0.34, ease: EASE, delay: i * 0.04 }
+                }
               />
             </span>
             <span

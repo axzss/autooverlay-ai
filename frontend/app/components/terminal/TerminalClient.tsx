@@ -16,7 +16,17 @@ import {
 } from '../../../lib/api'
 import AgentFeedCard from './AgentFeedCard'
 import YieldBars, { type YieldBar } from '@/components/charts/YieldBars'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
+import {
+  motion,
+  useReducedMotion,
+  EASE,
+  DURATION,
+  pressable,
+  RevealGroup,
+  RevealItem,
+} from '@/components/motion/primitives'
+import { ChevronRight } from 'lucide-react'
 
 function Skeleton() {
   return (
@@ -32,6 +42,7 @@ function Skeleton() {
 }
 
 export default function TerminalClient() {
+  const reduce = useReducedMotion()
   const [entries, setEntries] = useState<FeedEntry[]>([])
   const [portfolioContext, setPortfolioContext] = useState<PortfolioContext | null>(null)
   const [mode, setMode] = useState<string | null>(null)
@@ -143,10 +154,11 @@ export default function TerminalClient() {
             <span className="text-xs text-[#64748b]">Last cycle: {lastRun}</span>
           )}
         </div>
-        <button
+        <motion.button
           onClick={() => runCycle(false)}
           disabled={running || loading}
           className="inline-flex items-center gap-2 rounded border border-[#22c55e]/50 bg-[#0f172a] px-3 py-1.5 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10 transition-colors disabled:opacity-50"
+          {...(reduce ? {} : pressable)}
         >
           {running ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -154,26 +166,42 @@ export default function TerminalClient() {
             <Zap className="h-4 w-4" />
           )}
           {running ? 'Running agent cycle…' : 'Run agent cycle'}
-        </button>
+        </motion.button>
       </div>
 
       <main className="flex-1 overflow-y-auto px-4 sm:px-6 pb-6 pt-4 space-y-4">
-        {error && (
-          <p className="flex items-center gap-2 rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-sm text-[#f87171]">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {error} — press “Run agent cycle” to retry.
-          </p>
-        )}
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.p
+              key="feed-error"
+              initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+              className="flex items-center gap-2 overflow-hidden rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-sm text-[#f87171]"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {error} — press “Run agent cycle” to retry.
+            </motion.p>
+          )}
 
-        {liveError && (
-          <div className="flex items-start gap-2 rounded border border-[#b45309]/40 bg-[#451a03] px-3 py-2 text-sm text-[#fbbf24]">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Live market data failed — showing fallback data.{' '}
-              <span className="font-mono text-xs text-[#fcd34d] break-words">{liveError}</span>
-            </span>
-          </div>
-        )}
+          {liveError && (
+            <motion.div
+              key="live-error"
+              initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+              className="flex items-start gap-2 overflow-hidden rounded border border-[#b45309]/40 bg-[#451a03] px-3 py-2 text-sm text-[#fbbf24]"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Live market data failed — showing fallback data.{' '}
+                <span className="font-mono text-xs text-[#fcd34d] break-words">{liveError}</span>
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {loading ? (
           <Skeleton />
@@ -197,9 +225,13 @@ export default function TerminalClient() {
                 <YieldBars bars={yieldBars} />
               </div>
             )}
-            {entries.map((entry) => (
-              <AgentFeedCard key={entry.key} entry={entry} />
-            ))}
+            <RevealGroup className="space-y-3" stagger={0.04}>
+              {entries.map((entry) => (
+                <RevealItem key={entry.key}>
+                  <AgentFeedCard entry={entry} />
+                </RevealItem>
+              ))}
+            </RevealGroup>
           </>
         )}
 
@@ -252,10 +284,11 @@ export default function TerminalClient() {
                   Last run: {lastCycleRun}
                 </span>
               )}
-              <button
+              <motion.button
                 onClick={runDailyCycle}
                 disabled={cycleRunning}
                 className="inline-flex items-center gap-2 rounded border border-[#22c55e]/50 bg-[#0f172a] px-3 py-1.5 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10 transition-colors disabled:opacity-50"
+                {...(reduce ? {} : pressable)}
               >
                 {cycleRunning ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -263,7 +296,7 @@ export default function TerminalClient() {
                   <Zap className="h-3.5 w-3.5" />
                 )}
                 {cycleRunning ? 'Running…' : 'Run Daily Cycle'}
-              </button>
+              </motion.button>
             </div>
           </div>
 
@@ -302,8 +335,16 @@ export default function TerminalClient() {
               const provChips = Array.isArray(d.provenance) ? d.provenance : []
 
               return (
-                <div
+                <motion.div
                   key={`${d.symbol}-${d.action}-${idx}`}
+                  layout={reduce ? false : 'position'}
+                  initial={reduce ? false : { opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={
+                    reduce
+                      ? { duration: 0 }
+                      : { duration: DURATION.base, ease: EASE, delay: Math.min(idx * 0.03, 0.24) }
+                  }
                   className="rounded border border-[#1e293b] bg-[#0a0f1a] p-3 space-y-1.5"
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -320,10 +361,16 @@ export default function TerminalClient() {
                       onClick={() => toggleDirective(idx)}
                       className="text-[#64748b] hover:text-[#94a3b8] transition-colors"
                       aria-label={expanded ? 'Collapse' : 'Expand'}
+                      aria-expanded={expanded}
                     >
-                      {expanded
-                        ? <ChevronDown className="h-4 w-4" />
-                        : <ChevronRight className="h-4 w-4" />}
+                      {/* One chevron that rotates, rather than swapping two icons. */}
+                      <motion.span
+                        className="block"
+                        animate={{ rotate: expanded ? 90 : 0 }}
+                        transition={reduce ? { duration: 0 } : { duration: DURATION.fast, ease: EASE }}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </motion.span>
                     </button>
                   </div>
 
@@ -341,16 +388,27 @@ export default function TerminalClient() {
                     </div>
                   )}
 
-                  {expanded && traceLines.length > 0 && (
-                    <div className="rounded border border-[#1e293b] bg-[#020617] p-2 space-y-0.5">
-                      {traceLines.map((line, li) => (
-                        <p key={li} className="text-[11px] text-[#94a3b8] font-mono leading-snug">
-                          {line}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                  <AnimatePresence initial={false}>
+                    {expanded && traceLines.length > 0 && (
+                      <motion.div
+                        key="trace"
+                        initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                        animate={reduce ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+                        exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                        transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+                        className="overflow-hidden"
+                      >
+                        <div className="rounded border border-[#1e293b] bg-[#020617] p-2 space-y-0.5">
+                          {traceLines.map((line, li) => (
+                            <p key={li} className="text-[11px] text-[#94a3b8] font-mono leading-snug">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
               )
             })}
           </div>
@@ -376,10 +434,11 @@ export default function TerminalClient() {
                   {new Date(agentRun.completed_at).toLocaleTimeString()}
                 </span>
               )}
-              <button
+              <motion.button
                 onClick={runAgent}
                 disabled={agentRunning}
                 className="inline-flex items-center gap-2 rounded border border-[#22c55e]/50 bg-[#0f172a] px-3 py-1.5 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10 transition-colors disabled:opacity-50"
+                {...(reduce ? {} : pressable)}
               >
                 {agentRunning ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -387,7 +446,7 @@ export default function TerminalClient() {
                   <ClipboardList className="h-3.5 w-3.5" />
                 )}
                 {agentRunning ? 'Running…' : 'Run agent (preview)'}
-              </button>
+              </motion.button>
             </div>
           </div>
 

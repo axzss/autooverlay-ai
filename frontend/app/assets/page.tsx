@@ -5,6 +5,7 @@ import Header from '@/components/Header'
 import PortfolioStats from '@/components/PortfolioStats'
 import AssetHoldings from '@/components/AssetHoldings'
 import RecentHistory from '@/components/RecentHistory'
+import { Reveal, RevealGroup, RevealItem } from '@/components/motion/primitives'
 import { usePortfolio } from '../../lib/api'
 import type { Position } from '@/types/portfolio'
 
@@ -78,11 +79,17 @@ export default function AssetsPage() {
             )}
           </div>
           <div className="px-4 sm:px-6 pb-6 space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <PortfolioStats accountInfo={accountInfo} />
-              <AssetHoldings positions={positions} />
-            </div>
-            <RecentHistory rows={history} />
+            <RevealGroup className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <RevealItem>
+                <PortfolioStats accountInfo={accountInfo} />
+              </RevealItem>
+              <RevealItem>
+                <AssetHoldings positions={positions} />
+              </RevealItem>
+            </RevealGroup>
+            <Reveal delay={0.1}>
+              <RecentHistory rows={history} />
+            </Reveal>
           </div>
         </main>
       </div>

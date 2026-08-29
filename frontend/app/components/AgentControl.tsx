@@ -1,8 +1,16 @@
 'use client'
 
 import { Bot, Loader2, Play, AlertTriangle, ShieldAlert } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
 import { useAgentRun } from './AgentRunProvider'
 import type { OrderIntent } from '../../lib/api'
+import {
+  motion,
+  useReducedMotion,
+  EASE,
+  DURATION,
+  pressable,
+} from '@/components/motion/primitives'
 
 /**
  * Manual trigger for POST /api/agent/run.
@@ -13,6 +21,7 @@ import type { OrderIntent } from '../../lib/api'
  */
 export default function AgentControl() {
   const { run, running, error, runAgent } = useAgentRun()
+  const reduce = useReducedMotion()
 
   const halted = run?.risk_summary?.halted === true
   const haltReasons = run?.risk_summary?.kill_switch?.reasons ?? []
@@ -38,44 +47,68 @@ export default function AgentControl() {
           orders — nothing is sent to the broker.
         </p>
 
-        <button
+        <motion.button
           onClick={runAgent}
           disabled={running}
           className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+          {...(reduce ? {} : pressable)}
         >
           {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           {running ? 'Running analysis…' : 'Run Agent Now'}
-        </button>
+        </motion.button>
 
-        {error && (
-          <p className="flex items-start gap-2 rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-xs text-[#f87171]">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            {error}
-          </p>
-        )}
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.p
+              key="err"
+              initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+              className="flex items-start gap-2 overflow-hidden rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 text-xs text-[#f87171]"
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {error}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
         {/* Kill-switch is checked first in the cycle: when halted, no directives
             and no intents are produced at all. Show why, not an empty table. */}
-        {halted && (
-          <div className="rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 space-y-1">
-            <p className="flex items-center gap-2 text-xs font-semibold text-[#f87171]">
-              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-              Kill-switch HALT — trading suspended
-            </p>
-            {haltReasons.map((reason, i) => (
-              <p key={i} className="pl-5 text-[11px] leading-snug text-[#fca5a5]">
-                {reason}
+        <AnimatePresence initial={false}>
+          {halted && (
+            <motion.div
+              key="halt"
+              initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, height: 'auto' }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+              className="overflow-hidden rounded border border-[#ef4444]/40 bg-[#450a0a] px-3 py-2 space-y-1"
+            >
+              <p className="flex items-center gap-2 text-xs font-semibold text-[#f87171]">
+                <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+                Kill-switch HALT — trading suspended
               </p>
-            ))}
-            <p className="pl-5 text-[10px] text-[#94a3b8]">
-              No new entries were evaluated. Adjust thresholds in Settings or wait
-              for the portfolio to recover.
-            </p>
-          </div>
-        )}
+              {haltReasons.map((reason, i) => (
+                <p key={i} className="pl-5 text-[11px] leading-snug text-[#fca5a5]">
+                  {reason}
+                </p>
+              ))}
+              <p className="pl-5 text-[10px] text-[#94a3b8]">
+                No new entries were evaluated. Adjust thresholds in Settings or wait
+                for the portfolio to recover.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {run && !halted && (
-          <div className="space-y-2">
+          <motion.div
+            className="space-y-2"
+            initial={reduce ? false : { opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+          >
             <div className="flex flex-wrap gap-2 text-[10px]">
               <span className="rounded border border-[#334155] bg-[#020617] px-2 py-0.5 text-[#94a3b8]">
                 {directiveCount} directive{directiveCount === 1 ? '' : 's'}
@@ -132,7 +165,7 @@ export default function AgentControl() {
                 ))}
               </ul>
             )}
-          </div>
+          </motion.div>
         )}
 
         {!run && !error && !running && (

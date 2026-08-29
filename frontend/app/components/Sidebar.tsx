@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LogoLockup } from '@/components/brand/Logo'
+import { motion, useReducedMotion, EASE, DURATION } from '@/components/motion/primitives'
 
 const nav = [
   { name: 'Dashboard', icon: LayoutGrid, href: '/dashboard' },
@@ -32,6 +33,7 @@ const nav = [
 export default function Sidebar() {
   const pathname = usePathname()
   const drawerRef = useRef<HTMLDivElement | null>(null)
+  const reduce = useReducedMotion()
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -67,8 +69,15 @@ export default function Sidebar() {
               )}
               aria-current={isActive ? 'page' : undefined}
             >
+              {/* layoutId makes the emerald marker slide between items on route
+                  change instead of disappearing and reappearing. */}
               {isActive && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-[#22c55e] rounded-full" />
+                <motion.span
+                  layoutId="sidebar-active-marker"
+                  className="absolute left-0 top-1/2 w-[3px] h-5 bg-[#22c55e] rounded-full"
+                  style={{ translateY: '-50%' }}
+                  transition={reduce ? { duration: 0 } : { duration: DURATION.base, ease: EASE }}
+                />
               )}
               <item.icon className="h-4 w-4" />
               {item.name}

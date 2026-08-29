@@ -3,6 +3,7 @@
 import Sidebar from '@/components/Sidebar'
 import Header from '@/components/Header'
 import StrategyConfigCard from '@/components/StrategyConfigCard'
+import { Reveal } from '@/components/motion/primitives'
 
 /**
  * Settings renders StrategyConfigCard only.
@@ -21,14 +22,18 @@ export default function SettingsPage() {
         <Header />
         <main className="flex-1 overflow-y-auto">
           <div className="space-y-4 px-6 pt-6 pb-6">
-            <div>
-              <h1 className="text-lg font-semibold text-white">Settings</h1>
-              <p className="text-sm text-[#94a3b8]">
-                Live strategy parameters. Changes are persisted to the agent via
-                the backend, not stored locally.
-              </p>
-            </div>
-            <StrategyConfigCard />
+            <Reveal>
+              <div>
+                <h1 className="text-lg font-semibold text-white">Settings</h1>
+                <p className="text-sm text-[#94a3b8]">
+                  Live strategy parameters. Changes are persisted to the agent via
+                  the backend, not stored locally.
+                </p>
+              </div>
+            </Reveal>
+            <Reveal delay={0.06}>
+              <StrategyConfigCard />
+            </Reveal>
           </div>
         </main>
       </div>

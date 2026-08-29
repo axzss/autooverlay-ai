@@ -1,11 +1,17 @@
 'use client'
 
+import { motion, useReducedMotion, EASE } from '@/components/motion/primitives'
+
 /**
  * Concentric ring gauge for a 0-100 score. Pure SVG, no chart library needed —
  * recharts has no radial gauge worth the bundle cost for this.
  *
  * Colour bands match riskBadgeClasses in lib/api.ts so a score reads the same
  * everywhere: emerald >= 60, amber >= 40, red below.
+ *
+ * The arc sweeps from zero on mount so the score reads as measured rather than
+ * printed. Slightly slower than the house default (400ms) because a sweep needs
+ * to be legible; still short enough not to delay reading the number.
  */
 export default function ScoreGauge({
   score,
@@ -16,6 +22,7 @@ export default function ScoreGauge({
   size?: number
   label?: string
 }) {
+  const reduce = useReducedMotion()
   const clamped = Math.max(0, Math.min(100, Number.isFinite(score) ? score : 0))
   const stroke = size >= 56 ? 5 : 4
   const r = (size - stroke) / 2
@@ -35,7 +42,7 @@ export default function ScoreGauge({
           stroke="#1e293b"
           strokeWidth={stroke}
         />
-        <circle
+        <motion.circle
           cx={size / 2}
           cy={size / 2}
           r={r}
@@ -43,7 +50,10 @@ export default function ScoreGauge({
           stroke={colour}
           strokeWidth={stroke}
           strokeLinecap="round"
-          strokeDasharray={`${filled} ${circumference - filled}`}
+          strokeDasharray={circumference}
+          initial={reduce ? false : { strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: circumference - filled }}
+          transition={reduce ? { duration: 0 } : { duration: 0.4, ease: EASE }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">

@@ -12,6 +12,7 @@ import ThoughtProcess from '@/components/ThoughtProcess'
 import AgentStatusCard from '@/components/dashboard/AgentStatusCard'
 import EquitySparkline from '@/components/charts/EquitySparkline'
 import AllocationDonut from '@/components/charts/AllocationDonut'
+import { RevealGroup, RevealItem } from '@/components/motion/primitives'
 import {
   api,
   normalizeScreenings,
@@ -104,14 +105,20 @@ export default function DashboardPage() {
             {portfolioContext && <ContextChips ctx={portfolioContext} />}
           </div>
           <div className="px-4 sm:px-6 pb-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <MetricCard label="TOTAL VALUE" value={account && !loading ? `$${usd(account.portfolio_value)}` : '—'} />
-              <MetricCard label="DAILY P&L" value={dailyPnlLabel ?? (loading ? '—' : '$0.00')} accent={(dailyPnl ?? 0) >= 0} />
-              <MetricCard label="BUYING POWER" value={account && !loading ? `$${usd(account.cash)}` : '—'} />
-            </div>
+            <RevealGroup className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <RevealItem>
+                <MetricCard label="TOTAL VALUE" value={account && !loading ? `$${usd(account.portfolio_value)}` : '—'} />
+              </RevealItem>
+              <RevealItem>
+                <MetricCard label="DAILY P&L" value={dailyPnlLabel ?? (loading ? '—' : '$0.00')} accent={(dailyPnl ?? 0) >= 0} />
+              </RevealItem>
+              <RevealItem>
+                <MetricCard label="BUYING POWER" value={account && !loading ? `$${usd(account.cash)}` : '—'} />
+              </RevealItem>
+            </RevealGroup>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="card">
+            <RevealGroup className="grid grid-cols-1 lg:grid-cols-2 gap-4" delayChildren={0.06}>
+              <RevealItem className="card">
                 <div className="flex items-baseline justify-between">
                   <p className="text-xs font-medium uppercase tracking-wider text-[#94a3b8]">
                     Equity move
@@ -131,30 +138,30 @@ export default function DashboardPage() {
                     close and current equity only.
                   </p>
                 )}
-              </div>
+              </RevealItem>
 
-              <div className="card">
+              <RevealItem className="card">
                 <p className="text-xs font-medium uppercase tracking-wider text-[#94a3b8]">
                   Allocation
                 </p>
                 <div className="mt-3">
                   <AllocationDonut slices={allocation} />
                 </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2 space-y-4">
+              </RevealItem>
+            </RevealGroup>
+            <RevealGroup className="grid grid-cols-1 lg:grid-cols-3 gap-4" delayChildren={0.12}>
+              <RevealItem className="lg:col-span-2 space-y-4">
                 <UnderlyingAssets positions={positions} />
                 <ActiveOverlayContracts positions={positions} />
-              </div>
-              <div className="space-y-4">
+              </RevealItem>
+              <RevealItem className="space-y-4">
                 <AgentStatusCard />
                 <AgentRunProvider>
                   <AgentControl />
                   <ThoughtProcess />
                 </AgentRunProvider>
-              </div>
-            </div>
+              </RevealItem>
+            </RevealGroup>
           </div>
         </main>
       </div>

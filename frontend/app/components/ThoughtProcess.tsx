@@ -2,6 +2,7 @@
 
 import { Terminal as TerminalIcon, Loader2 } from 'lucide-react'
 import { useAgentRun } from './AgentRunProvider'
+import { motion, useReducedMotion, EASE, DURATION } from '@/components/motion/primitives'
 
 /**
  * Shows the reasoning trace from the most recent agent run.
@@ -13,6 +14,7 @@ import { useAgentRun } from './AgentRunProvider'
  */
 export default function ThoughtProcess() {
   const { run, running, error } = useAgentRun()
+  const reduce = useReducedMotion()
 
   const trace = run?.reasoning_trace ?? []
 
@@ -45,12 +47,22 @@ export default function ThoughtProcess() {
         {trace.length > 0 && (
           <div className="space-y-1">
             {trace.map((line, idx) => (
-              <div key={idx} className="flex gap-2">
+              <motion.div
+                key={idx}
+                className="flex gap-2"
+                initial={reduce ? false : { opacity: 0, x: -6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={
+                  reduce
+                    ? { duration: 0 }
+                    : { duration: DURATION.fast, ease: EASE, delay: Math.min(idx * 0.035, 0.4) }
+                }
+              >
                 <span className="shrink-0 select-none text-[#334155] tabular-nums">
                   {String(idx + 1).padStart(2, '0')}
                 </span>
                 <span className="text-[#94a3b8] break-words">{line}</span>
-              </div>
+              </motion.div>
             ))}
           </div>
         )}
