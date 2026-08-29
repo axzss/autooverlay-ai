@@ -44,7 +44,8 @@ def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
         delta = _safe_float(greeks.get("delta"))
         if delta is None:
             continue
-        if not (delta_min <= delta <= delta_max):
+        abs_delta = abs(float(delta))
+        if not (delta_min <= abs_delta <= delta_max):
             continue
         try:
             exp = _occ_expiration(symbol_in)
