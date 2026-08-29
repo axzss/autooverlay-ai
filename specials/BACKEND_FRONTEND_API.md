@@ -131,6 +131,12 @@ uses bundled snapshots. The response contains mode, assessment count, and per-sy
 - `tier_policy`
 - `mr_market_context`
 
+`tier_policy` exposes the active council-derived option filter for that
+volatility tier. `delta_min` and `delta_max` are **short-option absolute
+deltas**: positive numbers such as `0.15` represent a `-0.15` delta for puts
+or `+0.15` for calls. The backend normalizes to `abs(delta)` before comparing,
+so frontend consumers should **not** negate these values.
+
 GET example:
 
 ```text
