@@ -118,8 +118,18 @@ HTTP 422 and do not replace the active configuration.
 ### GET/POST `/api/council/assess`
 
 Runs the council personas for requested symbols. Without Alpaca credentials it
-uses bundled snapshots. The response contains mode, assessment count, symbol
-tier/policy, consensus score, recommendation, persona verdicts, and dissent.
+uses bundled snapshots. The response contains mode, assessment count, and per-symbol records with:
+- `symbol`
+- `tier`: one of `LOW` / `MID` / `HIGH` (derived from annualized vol band)
+- `consensus_score`: 0–100 weighted score
+- `recommendation`
+- `majority_stance`
+- `is_split`
+- `verdicts`
+- `dissent`
+- `tier_policy_summary`
+- `tier_policy`
+- `mr_market_context`
 
 GET example:
 
