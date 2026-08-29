@@ -256,8 +256,11 @@ export interface CouncilAssessResponse {
 
 export const api = {
   getPortfolio: () => request<PortfolioSnapshot>('/api/portfolio'),
-  // /health is the one route mounted bare — every router sits under /api.
-  getHealth: () => request<HealthResponse>('/health'),
+  // Backend serves health bare at /health, but the browser must go through the
+  // Next rewrite, which only proxies paths under /api. next.config.js maps
+  // /api/health -> :8000/health precisely for this. Requesting bare '/health'
+  // asks the Next origin for a page that does not exist -> 404.
+  getHealth: () => request<HealthResponse>('/api/health'),
   screenStrategies: () =>
     request<
       | StrategyOpportunity[]
