@@ -16,7 +16,43 @@
  */
 
 import { motion, useReducedMotion, type Variants } from 'framer-motion'
-import type { ComponentProps, ReactNode } from 'react'
+import { useEffect, useState, type ComponentProps, type ReactNode } from 'react'
+
+/**
+ * Has the app hydrated at least once in this browser session?
+ *
+ * Module-scoped on purpose. It must survive component unmounts so that a
+ * client-side navigation is distinguishable from a cold page load.
+ */
+let appHasHydrated = false
+
+/**
+ * Returns true only when an entrance animation is safe to play.
+ *
+ * WHY THIS EXISTS — a real bug, reported from a real browser:
+ * framer-motion serialises its `initial` variant into the server-rendered HTML.
+ * With `initial="hidden"` that means the markup ships as `opacity:0;
+ * transform:translateY(8px)`. The content is present in the DOM but invisible
+ * until framer-motion boots and animates it in.
+ *
+ * On /dashboard — the heaviest route at 257 kB first load — that window was long
+ * enough that the page looked completely empty on first visit. Navigating to
+ * another page and back "fixed" it, because by then React had hydrated and the
+ * animation ran. tsc and next build both passed; only a human opening the page
+ * caught it.
+ *
+ * So: cold load renders at the final state (visible, no animation). Client-side
+ * navigations animate normally. A dashboard must never be able to render
+ * invisible — an entrance flourish is not worth a blank screen.
+ */
+export function useEntranceReady(): boolean {
+  const [ready, setReady] = useState(appHasHydrated)
+  useEffect(() => {
+    appHasHydrated = true
+    if (!ready) setReady(true)
+  }, [ready])
+  return ready
+}
 
 /** Standard ease-out curve used everywhere. */
 export const EASE = [0.22, 1, 0.36, 1] as const
@@ -76,7 +112,9 @@ export function Reveal({
   ...rest
 }: { children: ReactNode; variants?: Variants; delay?: number } & Omit<DivProps, 'variants'>) {
   const reduce = useReducedMotion()
-  if (reduce) return <div {...(rest as ComponentProps<'div'>)}>{children}</div>
+  const ready = useEntranceReady()
+  // Plain div on reduced motion AND on cold load — see useEntranceReady().
+  if (reduce || !ready) return <div {...(rest as ComponentProps<'div'>)}>{children}</div>
   return (
     <motion.div
       initial="hidden"
@@ -99,7 +137,8 @@ export function RevealGroup({
   ...rest
 }: { children: ReactNode; stagger?: number; delayChildren?: number } & DivProps) {
   const reduce = useReducedMotion()
-  if (reduce) return <div {...(rest as ComponentProps<'div'>)}>{children}</div>
+  const ready = useEntranceReady()
+  if (reduce || !ready) return <div {...(rest as ComponentProps<'div'>)}>{children}</div>
   return (
     <motion.div
       initial="hidden"
@@ -119,7 +158,8 @@ export function RevealItem({
   ...rest
 }: { children: ReactNode; variants?: Variants } & Omit<DivProps, 'variants'>) {
   const reduce = useReducedMotion()
-  if (reduce) return <div {...(rest as ComponentProps<'div'>)}>{children}</div>
+  const ready = useEntranceReady()
+  if (reduce || !ready) return <div {...(rest as ComponentProps<'div'>)}>{children}</div>
   return (
     <motion.div variants={variants} {...rest}>
       {children}

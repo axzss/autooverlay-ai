@@ -1,6 +1,6 @@
 'use client'
 
-import { motion, useReducedMotion, EASE } from '@/components/motion/primitives'
+import { motion, useReducedMotion, useEntranceReady, EASE } from '@/components/motion/primitives'
 
 /**
  * AutoOverlay AI brand mark.
@@ -22,7 +22,10 @@ export function LogoMark({
   animate?: boolean
 }) {
   const reduce = useReducedMotion()
-  const still = reduce || !animate
+  const ready = useEntranceReady()
+  // A cold load must render the mark fully drawn: pathLength:0 in the server
+  // HTML means an invisible logo until framer-motion hydrates.
+  const still = reduce || !animate || !ready
 
   /** Draw-on for one stroke. Static render keeps the full path visible. */
   const draw = (delay: number) =>
@@ -89,7 +92,10 @@ export function LogoLockup({
   animate?: boolean
 }) {
   const reduce = useReducedMotion()
-  const still = reduce || !animate
+  const ready = useEntranceReady()
+  // !ready covers the cold load: without it the wordmark ships as opacity:0 in
+  // the server HTML and the brand is invisible until framer-motion boots.
+  const still = reduce || !animate || !ready
 
   return (
     <span className={`flex items-center gap-2 ${className}`}>
