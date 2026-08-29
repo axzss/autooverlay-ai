@@ -70,7 +70,7 @@ def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
         })
     if not candidates:
         return None
-    candidates.sort(key=lambda c: (abs(c["delta"] - ((delta_min + delta_max) / 2)), c["dte"]))
+    candidates.sort(key=lambda c: (abs(abs(c["delta"]) - ((delta_min + delta_max) / 2)), c["dte"]))
     return candidates[0]
 
 
