@@ -15,6 +15,7 @@ import {
   type PortfolioContext,
 } from '../../../lib/api'
 import AgentFeedCard from './AgentFeedCard'
+import YieldBars, { type YieldBar } from '@/components/charts/YieldBars'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
 function Skeleton() {
@@ -118,6 +119,16 @@ export default function TerminalClient() {
     runCycle(true)
   }, [runCycle])
 
+  // Only candidates that actually reported a yield — a bar at 0% for a missing
+  // value would read as "no premium" rather than "not provided".
+  const yieldBars: YieldBar[] = entries
+    .filter((e) => typeof e.premiumYieldPct === 'number')
+    .map((e) => ({
+      label: e.symbol,
+      value: e.premiumYieldPct as number,
+      flagged: e.riskScore >= 60,
+    }))
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-4 border-b border-[#1e293b]">
@@ -172,7 +183,24 @@ export default function TerminalClient() {
             <p className="text-sm text-[#94a3b8]">No overlay recommendations right now.</p>
           </div>
         ) : (
-          entries.map((entry) => <AgentFeedCard key={entry.key} entry={entry} />)
+          <>
+            {/* Relative premium yield across candidates — comparison at a glance
+                before reading the individual cards. Amber marks risk >= 60. */}
+            {yieldBars.length > 1 && (
+              <div className="rounded border border-[#1e293b] bg-[#0f172a] p-4">
+                <div className="mb-3 flex items-baseline justify-between">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-[#94a3b8]">
+                    Annualised premium yield
+                  </h2>
+                  <span className="text-[10px] text-[#64748b]">amber = risk score ≥ 60</span>
+                </div>
+                <YieldBars bars={yieldBars} />
+              </div>
+            )}
+            {entries.map((entry) => (
+              <AgentFeedCard key={entry.key} entry={entry} />
+            ))}
+          </>
         )}
 
         {portfolioContext && (

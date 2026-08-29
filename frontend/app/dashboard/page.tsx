@@ -7,8 +7,11 @@ import MetricCard from '@/components/MetricCard'
 import UnderlyingAssets from '@/components/UnderlyingAssets'
 import ActiveOverlayContracts from '@/components/ActiveOverlayContracts'
 import AgentControl from '@/components/AgentControl'
+import AgentRunProvider from '@/components/AgentRunProvider'
 import ThoughtProcess from '@/components/ThoughtProcess'
 import AgentStatusCard from '@/components/dashboard/AgentStatusCard'
+import EquitySparkline from '@/components/charts/EquitySparkline'
+import AllocationDonut from '@/components/charts/AllocationDonut'
 import {
   api,
   normalizeScreenings,
@@ -74,6 +77,16 @@ export default function DashboardPage() {
   const dailyPnlLabel =
     account && dailyPnl !== 0 ? `${dailyPnl > 0 ? '+' : '-'}$${usd(Math.abs(dailyPnl))}` : null
 
+  // The backend exposes previous close and current equity only — two real points.
+  // No interpolation, no synthetic history: a fabricated curve would look better
+  // and mean nothing.
+  const equitySeries =
+    lastEquity > 0 && equity > 0 ? [lastEquity, equity] : []
+
+  const allocation = positions
+    .map((p) => ({ name: p.symbol, value: Number(p.market_value) }))
+    .filter((s) => Number.isFinite(s.value) && s.value > 0)
+
   return (
     <div className="flex h-screen bg-[#020617] text-[#f8fafc] overflow-hidden">
       <Sidebar />
@@ -96,15 +109,50 @@ export default function DashboardPage() {
               <MetricCard label="DAILY P&L" value={dailyPnlLabel ?? (loading ? '—' : '$0.00')} accent={(dailyPnl ?? 0) >= 0} />
               <MetricCard label="BUYING POWER" value={account && !loading ? `$${usd(account.cash)}` : '—'} />
             </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="card">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-xs font-medium uppercase tracking-wider text-[#94a3b8]">
+                    Equity move
+                  </p>
+                  <p className="text-[10px] text-[#64748b]">prev close → now</p>
+                </div>
+                {equitySeries.length >= 2 ? (
+                  <>
+                    <EquitySparkline series={equitySeries} />
+                    <p className="mt-1 text-xs tabular-nums text-[#94a3b8]">
+                      ${usd(lastEquity)} → ${usd(equity)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-3 text-xs text-[#64748b]">
+                    Not enough equity history yet — the backend exposes previous
+                    close and current equity only.
+                  </p>
+                )}
+              </div>
+
+              <div className="card">
+                <p className="text-xs font-medium uppercase tracking-wider text-[#94a3b8]">
+                  Allocation
+                </p>
+                <div className="mt-3">
+                  <AllocationDonut slices={allocation} />
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="lg:col-span-2 space-y-4">
                 <UnderlyingAssets positions={positions} />
-                <ActiveOverlayContracts />
+                <ActiveOverlayContracts positions={positions} />
               </div>
               <div className="space-y-4">
                 <AgentStatusCard />
-                <AgentControl />
-                <ThoughtProcess />
+                <AgentRunProvider>
+                  <AgentControl />
+                  <ThoughtProcess />
+                </AgentRunProvider>
               </div>
             </div>
           </div>

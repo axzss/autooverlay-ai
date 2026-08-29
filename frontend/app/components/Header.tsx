@@ -1,9 +1,10 @@
 'use client'
 
-import { LayoutGrid, Rocket, LayoutTemplate, User, Menu } from 'lucide-react'
+import { Rocket, LayoutTemplate, User, Menu } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 import MobileSidebar from '@/components/MobileSidebar'
+import { LogoMark } from '@/components/brand/Logo'
 
 /**
  * Top bar: brand, status indicators, and profile actions only.
@@ -17,12 +18,8 @@ export default function Header() {
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#1e293b] bg-[#020617] px-4 sm:px-6">
       <div className="flex items-center gap-4 sm:gap-6">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded bg-[#22c55e]/20">
-            <LayoutGrid className="h-5 w-5 text-[#22c55e]" />
-          </div>
-          <div className="flex flex-col">
-            <span className="font-semibold text-[#22c55e] text-sm leading-tight">AutoOverlay AI | Track 4</span>
-          </div>
+          <LogoMark className="h-8 w-8" />
+          <span className="font-semibold text-[#22c55e] text-sm leading-tight">AutoOverlay AI | Track 4</span>
         </Link>
       </div>
 
