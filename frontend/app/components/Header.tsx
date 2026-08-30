@@ -1,16 +1,11 @@
 'use client'
 
-import { Rocket, LayoutTemplate, User, Menu } from 'lucide-react'
+import { Menu } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 import MobileSidebar from '@/components/MobileSidebar'
 import { LogoMark } from '@/components/brand/Logo'
 
-/**
- * Top bar: brand, status indicators, and profile actions only.
- * Primary navigation lives in the left Sidebar (desktop) and MobileSidebar
- * (below lg) — the header must not duplicate it.
- */
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -41,25 +36,6 @@ export default function Header() {
           className="lg:hidden rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
         >
           <Menu className="h-5 w-5" />
-        </button>
-
-        <button
-          aria-label="Deploy"
-          className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
-        >
-          <Rocket className="h-5 w-5" />
-        </button>
-        <button
-          aria-label="Layout options"
-          className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
-        >
-          <LayoutTemplate className="h-5 w-5" />
-        </button>
-        <button
-          aria-label="User profile"
-          className="hidden sm:flex rounded-full p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white transition-colors"
-        >
-          <User className="h-5 w-5" />
         </button>
       </div>
 

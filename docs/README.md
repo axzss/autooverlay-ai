@@ -9,8 +9,10 @@ Everything written down about AutoOverlay AI. Start here.
 | [`AI-ENGINEER.md`](AI-ENGINEER.md) | The agent layer in depth: strategies, decision engine, exits, orchestration |
 | [`HEDGE-FUND-COUNCIL.md`](HEDGE-FUND-COUNCIL.md) | Investment Council: 6 personas, Graham-from-the-book, Mr. Market, dissent |
 | [`FRONTEND.md`](FRONTEND.md) | Next.js layer: API client, layout, brand, charts, motion |
+| [`frontend/docs/DASHBOARD.md`](../frontend/docs/DASHBOARD.md) | Dashboard components, purpose, and page wiring |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System diagram, data flow, module responsibilities |
 | [`API-CONTRACT.md`](API-CONTRACT.md) | Every endpoint with its **actual verified** response shape |
+| [`BACKEND_FRONTEND_API.md`](BACKEND_FRONTEND_API.md) | Legacy API note: superseded by `API-CONTRACT.md` where they conflict |
 | [`RISK-MANAGEMENT.md`](RISK-MANAGEMENT.md) | Kill-switch, caps, exit rules, tier policy, and what each is for |
 | [`MEMORY.md`](MEMORY.md) | Dated build log from zero to now, with criticism per milestone |
 | [`TESTING.md`](TESTING.md) | Test suite map, what is covered, what is **not** |

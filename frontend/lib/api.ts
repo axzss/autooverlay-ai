@@ -109,38 +109,74 @@ export class ApiError extends Error {
   }
 }
 
+const RETRYABLE_METHODS = new Set(['GET', 'HEAD'])
+const RETRYABLE_STATUS = new Set([408, 429, 502, 503, 504])
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController()
-  // Agent endpoints fan out to Alpaca and Yahoo per symbol: /council/cycle and
-  // /agent/run take ~2s locally and more over a tunnel. A flat 5s budget
-  // aborted them and surfaced as "unreachable", which reads as a dead backend
-  // rather than a slow one. Reads stay tight; agent runs get room.
   const slow = /\/(agent\/run|council\/(cycle|assess)|strategy\/screen)/.test(path)
-  const timeout = setTimeout(() => controller.abort(), slow ? 30000 : 8000)
-  try {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(init?.headers ?? {}),
-      },
-    })
-    if (!res.ok) {
-      throw new ApiError(`API ${path} responded ${res.status}`)
+  const baseTimeout = slow ? 45000 : 15000
+  const timeout = setTimeout(() => controller.abort(), baseTimeout)
+
+  const isRetryable =
+    RETRYABLE_METHODS.has((init?.method ?? 'GET').toUpperCase()) &&
+    init?.body == null
+
+  let attempt = 0
+  let lastError: unknown
+  while (attempt < (isRetryable ? 2 : 1)) {
+    attempt++
+    const tryController = attempt > 1 ? new AbortController() : controller
+    const tryTimeout = setTimeout(
+      () => tryController.abort(),
+      slow ? 45000 : 15000,
+    )
+    try {
+      const res = await fetch(`${API_BASE_URL}${path}`, {
+        ...init,
+        signal: tryController.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
+      })
+      clearTimeout(tryTimeout)
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        const error = new ApiError(
+          `API ${path} responded ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`,
+        )
+        if (!isRetryable || attempt === (isRetryable ? 2 : 1) || !RETRYABLE_STATUS.has(res.status)) {
+          throw error
+        }
+        lastError = error
+        continue
+      }
+      return (await res.json()) as T
+    } catch (err) {
+      clearTimeout(tryTimeout)
+      if (err instanceof ApiError) throw err
+      if (
+        isRetryable &&
+        attempt < (isRetryable ? 2 : 1) &&
+        err instanceof DOMException &&
+        err.name === 'AbortError'
+      ) {
+        lastError = err
+        continue
+      }
+      const wrapped = err instanceof DOMException && err.name === 'AbortError'
+        ? new ApiError(`API ${path} timed out`, err)
+        : new ApiError(`API ${path} unreachable`, err)
+      throw wrapped
+    } finally {
+      if (attempt === (isRetryable ? 2 : 1)) clearTimeout(timeout)
     }
-    return (await res.json()) as T
-  } catch (err) {
-    if (err instanceof ApiError) throw err
-    // Distinguish a timeout from a genuinely unreachable host: the two have
-    // different causes and different fixes.
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new ApiError(`API ${path} timed out`, err)
-    }
-    throw new ApiError(`API ${path} unreachable`, err)
-  } finally {
-    clearTimeout(timeout)
   }
+
+  const finalError =
+    lastError instanceof Error ? lastError : new ApiError(`API ${path} unreachable`)
+  throw finalError
 }
 
 export interface DailyDirective {

@@ -1,43 +1,26 @@
-import { Inter, Fira_Code } from 'next/font/google'
-import Providers from '@/components/Providers'
-import '@/styles/globals.css'
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './styles/globals.css'
 
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-})
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
-const firaCode = Fira_Code({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-mono',
-})
-
-export const metadata = {
-  title: 'AutoOverlay AI | Options Alpha Agents',
-  description:
-    'Agentic options-income overlay for existing equity portfolios. Six-persona investment council, book-accurate Graham defensive tests, kill-switch first, no order submitted without approval.',
-  applicationName: 'AutoOverlay AI',
-  openGraph: {
-    title: 'AutoOverlay AI',
-    description:
-      'Options income on the equity you already hold, screened by a six-persona investment council.',
-    siteName: 'AutoOverlay AI',
-    type: 'website',
+export const metadata: Metadata = {
+  title: {
+    default: 'AutoOverlay AI | Options Alpha',
+    template: '%s | AutoOverlay AI',
   },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'AutoOverlay AI',
-    description:
-      'Options income on the equity you already hold, screened by a six-persona investment council.',
+  description: 'Algorithmic options overlay dashboard.',
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
   },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${firaCode.variable} antialiased`}>
-        <Providers>{children}</Providers>
+    <html lang="en" suppressHydrationWarning className={inter.variable}>
+      <body className="bg-[#020617] text-[#f8fafc] antialiased">
+        {children}
       </body>
     </html>
   )
