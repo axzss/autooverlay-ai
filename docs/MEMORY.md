@@ -504,3 +504,50 @@ Resolved since the last revision: the fabricated trade log, the unwired
 `AgentControl` button, the hardcoded overlay-contracts row, eleven
 never-rendered mockup files, and the incorrect "Track 04" label carried in seven
 places.
+
+---
+
+## 2026-08-30 — Day 6: backend hardening and frontend polish
+
+### Backend fixes
+- `backend/app/main.py` now calls `load_dotenv()` so `/health` reports
+  `alpaca_configured: true` when `.env` is present.
+- `agent/council/daily_cycle.py` and `backend/app/routes/council.py` now pass
+  explicit `equity` from Alpaca into portfolio state, fixing a kill-switch
+  false-positive where `equity` and `peak_equity` were inconsistent.
+- `backend/app/routes/portfolio.py` includes `orders` in the `/api/portfolio`
+  response so the Assets page can render Recent History without a separate
+  endpoint call.
+
+### Frontend fixes
+- `frontend/app/layout.tsx` restores required `<html>` and `<body>` tags and
+  switches the global font to `Inter` via `next/font/google` with CSS variable
+  `--font-inter`.
+- Stale `frontend/app/icon.tsx` was removed; favicon and apple-touch icon now
+  both point to `public/logo.png` from `layout.tsx`.
+- `frontend/app/components/brand/Logo.tsx` now renders the sidebar/header logo
+  from `public/logo.png` using `next/image`, with a rounded container.
+- Dead sidebar/header items removed: Docs, Support, Deploy Logic, plus unused
+  header icons. Sidebar nav is now the single source of truth.
+- `frontend/app/components/dashboard/AgentStatusCard.tsx` now shows meaningful
+  backend/Alpaca status with live/mock labels and auto-refreshes every 30s.
+- `frontend/app/components/PortfolioStats.tsx` derives Total Assets and
+  Diversification Score from live `account_info` and `positions` instead of
+  hardcoded values.
+- `frontend/lib/api.ts` adds retry for transient read failures and increases
+  timeouts to reduce false "Backend unreachable" banners.
+
+### Verification
+- TypeScript `tsc --noEmit` clean.
+- Ad-hoc verifier confirmed favicon/logo wiring, font setup, API retry logic,
+  animation presence, and UI cleanup.
+- Backend `/health` and `/api/portfolio` verified live from this shell.
+
+**Criticism.** The frontend still has no visual verification or E2E test. The
+latest round of layout/logo/font changes are exactly the kind of work that
+compiles cleanly and still looks wrong in a real browser. Motion is still the
+weakest-verified part of the UI. The stale `app/icon.tsx` and missing `<html>`
+tags suggest that at some point files were edited without running the dev server
+or type checker, which is how broken markup reaches a browser in the first
+place. The docs gap is also real: the current docs still describe an older
+frontend shape in places, and this session exposed that mismatch.

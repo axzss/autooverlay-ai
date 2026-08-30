@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
-
 from ..alpaca_client import AlpacaClient, is_configured
 from ..mock_data import mock_account, mock_positions
 
@@ -26,11 +25,15 @@ async def get_portfolio() -> dict:
     try:
         account = client.get_account()
     except RuntimeError as exc:
-        return {"mode": "error", "detail": str(exc), "account_info": {}, "positions": []}
+        return {"mode": "error", "detail": str(exc), "account_info": {}, "positions": [], "orders": []}
     try:
         positions = client.get_positions()
     except RuntimeError as exc:
-        return {"mode": "error", "detail": str(exc), "account_info": account, "positions": []}
+        return {"mode": "error", "detail": str(exc), "account_info": account, "positions": [], "orders": []}
+    try:
+        orders = client.list_orders(status="all")
+    except RuntimeError:
+        orders = []
     return {
         "mode": _mode(),
         "account_info": {
@@ -64,4 +67,5 @@ async def get_portfolio() -> dict:
             }
             for p in positions
         ],
+        "orders": orders,
     }

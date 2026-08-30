@@ -88,9 +88,17 @@ def _build_portfolio_state(positions: List[dict], cash: float,
     equity. The live backend passes the account's CURRENT equity here (finding
     B), which made peak == equity and the drawdown ratio always 0. Taking the
     max is what makes that harmless from inside this layer.
+
+    An explicit ``equity`` override is used when provided so the cycle can
+    report the full account equity even when the passed positions list is
+    filtered for screening purposes.
     """
-    equity = sum(_position_value(p) for p in positions) + float(cash or 0)
     ov = overrides or {}
+    equity = ov.get("equity")
+    if equity is None:
+        equity = sum(_position_value(p) for p in positions) + float(cash or 0)
+    else:
+        equity = float(equity)
     state = {
         "equity": equity,
         "peak_equity": ov.get("peak_equity"),
