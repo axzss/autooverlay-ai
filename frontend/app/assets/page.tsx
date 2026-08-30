@@ -81,7 +81,7 @@ export default function AssetsPage() {
           <div className="px-4 sm:px-6 pb-6 space-y-4">
             <RevealGroup className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <RevealItem>
-                <PortfolioStats accountInfo={accountInfo} />
+                <PortfolioStats accountInfo={accountInfo} positions={positions} />
               </RevealItem>
               <RevealItem>
                 <AssetHoldings positions={positions} />

@@ -9,9 +9,6 @@ import {
   Wallet,
   Terminal,
   Settings,
-  Rocket,
-  BookOpen,
-  LifeBuoy,
   Scale,
   X,
 } from 'lucide-react'
@@ -122,21 +119,6 @@ export default function MobileSidebar({ open, onClose }: MobileSidebarProps) {
                 )
               })}
             </nav>
-
-            <div className="p-2 space-y-1 border-t border-[#1e293b]">
-              <button className="sidebar-nav-item w-full">
-                <BookOpen className="h-4 w-4" />
-                Docs
-              </button>
-              <button className="sidebar-nav-item w-full">
-                <LifeBuoy className="h-4 w-4" />
-                Support
-              </button>
-              <button className="btn-primary w-full flex items-center justify-center gap-2 mt-2">
-                <Rocket className="h-4 w-4" />
-                Deploy Logic
-              </button>
-            </div>
 
             <div className="p-4 border-t border-[#1e293b]">
               <p className="text-[10px] text-[#64748b]">© 2024 AutoOverlay AI. Algorithmic Precision.</p>

@@ -20,7 +20,7 @@ import {
  * must never call /api/trade.
  */
 export default function AgentControl() {
-  const { run, running, error, runAgent } = useAgentRun()
+  const { run, running, error, runAgent, approveOrder, lastApproval } = useAgentRun()
   const reduce = useReducedMotion()
 
   const halted = run?.risk_summary?.halted === true
@@ -44,7 +44,7 @@ export default function AgentControl() {
       <div className="p-4 space-y-3">
         <p className="text-sm text-[#94a3b8]">
           Run the analysis pipeline now. Returns recommendations and prepared
-          orders — nothing is sent to the broker.
+          orders — nothing is sent to the broker until you approve.
         </p>
 
         <motion.button
@@ -120,7 +120,7 @@ export default function AgentControl() {
                 {run.orders_ready ? 'orders ready' : 'not submitted'}
               </span>
               {blocked > 0 && (
-                <span className="rounded border border-[#f59e0b]/50 bg-[#451a03] px-2 py-0.5 text-[#fbbf24]">
+                <span className="rounded border border-[#f59e0b]/50 bg-[#451a03] px-1.5 text-[#fbbf24]">
                   {blocked} blocked
                 </span>
               )}
@@ -161,9 +161,25 @@ export default function AgentControl() {
                         </span>
                       )}
                     </div>
+                    {intent.requires_approval && !intent.submitted && (
+                      <motion.button
+                        onClick={() => approveOrder(intent)}
+                        className="mt-1 rounded border border-[#22c55e]/60 bg-[#052e16] px-2 py-1 text-[10px] font-semibold text-[#22c55e] hover:bg-[#0a3318]"
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        Approve & Submit
+                      </motion.button>
+                    )}
                   </li>
                 ))}
               </ul>
+            )}
+
+            {lastApproval?.status && (
+              <p className="text-[11px] text-[#22c55e]">Approval result: {lastApproval.status}</p>
+            )}
+            {lastApproval?.error && (
+              <p className="text-[11px] text-[#f87171]">Approval failed: {lastApproval.error}</p>
             )}
           </motion.div>
         )}

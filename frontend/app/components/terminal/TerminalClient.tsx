@@ -15,6 +15,7 @@ import {
   type PortfolioContext,
 } from '../../../lib/api'
 import AgentFeedCard from './AgentFeedCard'
+import ManualTradePanel from './ManualTradePanel'
 import YieldBars, { type YieldBar } from '@/components/charts/YieldBars'
 import { AnimatePresence } from 'framer-motion'
 import {
@@ -414,6 +415,10 @@ export default function TerminalClient() {
           </div>
         </div>
         {/* ── end Daily Cycle panel ─────────────────────────────────── */}
+
+        {/* ── Manual Trade panel ────────────────────────────────────── */}
+        <ManualTradePanel />
+        {/* ── end Manual Trade panel ───────────────────────────────── */}
 
         {/* ── Agent Run — order intent preview ──────────────────────── */}
         <div className="rounded border border-[#1e293b] bg-[#0f172a] p-4 space-y-3">

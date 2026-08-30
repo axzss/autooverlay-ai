@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -8,11 +7,7 @@ import {
   Wallet,
   Terminal,
   Settings,
-  Rocket,
-  BookOpen,
-  LifeBuoy,
   Scale,
-  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LogoLockup } from '@/components/brand/Logo'
@@ -32,24 +27,10 @@ const nav = [
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const drawerRef = useRef<HTMLDivElement | null>(null)
   const reduce = useReducedMotion()
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') document.body.click()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [])
-
-  const handleLinkClick = () => {
-    document.body.click()
-  }
 
   return (
     <aside
-      ref={drawerRef}
       className="fixed inset-y-0 left-0 z-50 hidden lg:flex w-[240px] bg-[#0f172a] border-r border-[#1e293b] flex-col"
     >
       <div className="flex h-14 items-center gap-2 px-4 border-b border-[#1e293b]">
@@ -69,8 +50,6 @@ export default function Sidebar() {
               )}
               aria-current={isActive ? 'page' : undefined}
             >
-              {/* layoutId makes the emerald marker slide between items on route
-                  change instead of disappearing and reappearing. */}
               {isActive && (
                 <motion.span
                   layoutId="sidebar-active-marker"
@@ -85,21 +64,6 @@ export default function Sidebar() {
           )
         })}
       </nav>
-
-      <div className="p-2 space-y-1 border-t border-[#1e293b]">
-        <button className="sidebar-nav-item">
-          <BookOpen className="h-4 w-4" />
-          Docs
-        </button>
-        <button className="sidebar-nav-item">
-          <LifeBuoy className="h-4 w-4" />
-          Support
-        </button>
-        <button className="btn-primary w-full flex items-center justify-center gap-2 mt-2">
-          <Rocket className="h-4 w-4" />
-          Deploy Logic
-        </button>
-      </div>
 
       <div className="p-4 border-t border-[#1e293b]">
         <p className="text-[10px] text-[#64748b]">© 2024 AutoOverlay AI. Algorithmic Precision.</p>

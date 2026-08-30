@@ -267,6 +267,7 @@ async def council_cycle(req: CouncilCycleRequest) -> dict:
     cash = req.cash_override if req.cash_override is not None else _f(
         account.get("cash") or account.get("buying_power") or 0)
     state_overrides = {
+        "equity": _f(account.get("equity")) or None,
         "peak_equity": _f(account.get("equity")) or None,
         "prev_equity": _f(account.get("last_equity")) or None,
         **(req.portfolio_state_overrides or {}),
