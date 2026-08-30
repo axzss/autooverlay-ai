@@ -68,6 +68,10 @@ def _headers() -> dict[str, str]:
 class AlpacaClient:
     """Thin synchronous wrapper over the Alpaca Trading / Data REST APIs."""
 
+    # Hard cap on snapshot pagination: bounded so a broken or hostile
+    # next_page_token cannot spin this loop forever inside one HTTP request.
+    MAX_SNAPSHOT_PAGES = 10
+
     def __init__(self, timeout: float = 15.0) -> None:
         self.timeout = timeout
 
@@ -169,14 +173,38 @@ class AlpacaClient:
         return bars
 
     def get_option_snapshots(self, underlying: str) -> list[dict]:
-        """Return option snapshots for an underlying (indicative feed)."""
+        """Return option snapshots for an underlying (indicative feed).
+
+        Alpaca returns ``snapshots`` as a **dict keyed by OCC option symbol**.
+        This method used to require a list and raised ``AlpacaAPIError`` on
+        every live call, so no options data ever reached the strategy layer
+        (docs/BRIEF-BACKEND-V2.md D1). It now accepts the dict form and the
+        list form, normalises to a list of dicts each carrying ``symbol``, and
+        follows ``next_page_token``: a liquid underlying's chain exceeds one
+        page, and truncating it biases the screen toward whichever strikes
+        happen to arrive first.
+        """
+        from .adapters.options import iter_snapshot_entries
+
         url = f"{get_data_url().rstrip('/')}/v1beta1/options/snapshots/{underlying.upper()}"
-        params = {"feed": "indicative", "limit": 500}
-        payload = self._data_request("GET", url, params)
-        snapshots = payload.get("snapshots", [])
-        if not isinstance(snapshots, list) or not all(isinstance(snapshot, dict) for snapshot in snapshots):
-            raise AlpacaAPIError("Alpaca snapshots response must contain a list")
-        return snapshots
+        out: list[dict] = []
+        page_token: str | None = None
+        for _ in range(self.MAX_SNAPSHOT_PAGES):
+            params: dict[str, Any] = {"feed": "indicative", "limit": 500}
+            if page_token:
+                params["page_token"] = page_token
+            payload = self._data_request("GET", url, params)
+            raw_container = payload.get("snapshots")
+            if raw_container is not None and not isinstance(raw_container, (dict, list)):
+                raise AlpacaAPIError(
+                    "Alpaca snapshots response must be an object or a list"
+                )
+            for symbol, raw in iter_snapshot_entries(payload):
+                out.append({**raw, "symbol": symbol})
+            page_token = payload.get("next_page_token") or None
+            if not page_token:
+                break
+        return out
 
 
 def normalize_option_position(position: dict) -> dict | None:
@@ -222,18 +250,18 @@ def normalize_option_position(position: dict) -> dict | None:
 
 
 def parse_occ_symbol(symbol: str) -> dict:
-    """Parse an OCC option symbol like AAPL240621C00175000 into components."""
-    import re
+    """Parse an OCC option symbol like AAPL240621C00175000 into components.
 
-    m = re.match(
-        r"^([A-Z.]{1,6})(\d{6})([CP])(\d{8})$", symbol.upper().replace(" ", "")
-    )
-    if not m:
-        raise ValueError(f"Invalid OCC option symbol: {symbol}")
-    root, date, cp, strike = m.groups()
+    Kept as the historical entry point; the single implementation now lives in
+    ``adapters.options.parse_occ`` so there is exactly one OCC parser in the
+    backend (there were three, and one of them raised TypeError — D3).
+    """
+    from .adapters.options import parse_occ
+
+    occ = parse_occ(symbol)
     return {
-        "underlying": root,
-        "expiration": f"20{date[0:2]}-{date[2:4]}-{date[4:6]}",
-        "type": "call" if cp == "C" else "put",
-        "strike": int(strike) / 1000.0,
+        "underlying": occ.underlying,
+        "expiration": occ.expiration.isoformat(),
+        "type": occ.option_type,
+        "strike": occ.strike,
     }

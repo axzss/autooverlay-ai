@@ -9,6 +9,7 @@ endpoint degrades to bundled snapshot-like mock data so the UI works offline.
 
 from __future__ import annotations
 
+import asyncio
 import math
 from typing import List, Optional
 
@@ -129,12 +130,22 @@ def _live_cycle_snapshots(positions: List[dict],
         return {}
 
 
-def _assessment_to_dict(symbol: str) -> dict:
-    """Snapshot lookup + council evaluation for one symbol."""
+def _assessment_to_dict(symbol: str, snapshots: dict[str, dict]) -> dict:
+    """Snapshot lookup + council evaluation for one symbol.
+
+    ``snapshots`` is passed explicitly. It used to be read from a module-level
+    ``_snapshots`` global that ``_assess`` overwrote on every request (D6): two
+    concurrent requests shared one dict, so a request asking for AAPL could
+    render another request's universe. That only ever looked safe because the
+    blocking fetch (D5) serialised every request — fixing the concurrency
+    without removing the global would have turned a latent bug into live
+    cross-request data leakage.
+    """
     engine = CouncilEngine()
-    assessment = engine.assess_underlying(dict(_snapshots[symbol]))
+    snapshot = snapshots[symbol]
+    assessment = engine.assess_underlying(dict(snapshot))
     tier, notes = effective_policy_for_symbol(
-        symbol, float(_snapshots[symbol].get("vol30d_annualized_pct") or 0)
+        symbol, float(snapshot.get("vol30d_annualized_pct") or 0)
     )
     policy = {
         "delta_min": tier.delta_min,
@@ -165,9 +176,6 @@ def _assessment_to_dict(symbol: str) -> dict:
     }
 
 
-_snapshots: dict[str, dict] = {}
-
-
 @router.get("/council/assess")
 async def council_assess_get(symbols: Optional[str] = None) -> dict:
     try:
@@ -187,25 +195,36 @@ async def council_assess_post(req: CouncilAssessRequest) -> dict:
 
 
 async def _assess(req: CouncilAssessRequest) -> dict:
-    global _snapshots
-    wanted = req.symbols or list(COUNCIL_UNIVERSE)
+    """Assess the requested symbols.
+
+    The blocking Alpaca fetch runs in a worker thread (``asyncio.to_thread``).
+    Called directly it blocked the event loop for its whole duration — 8 symbols
+    × 4 HTTP calls each — so every other request, including `/health`, queued
+    behind it (D5). Nothing about the fetch is async-native, so a thread is the
+    correct tool rather than rewriting the client.
+
+    Snapshots are local to this call and passed down explicitly; see
+    ``_assessment_to_dict`` for why the module global had to go with it.
+    """
+    wanted: List[str] = [str(s) for s in (req.symbols or COUNCIL_UNIVERSE)]
 
     mode = "live"
+    snapshots: dict[str, dict]
     if is_configured():
         try:
-            _snapshots = _fetch_live_snapshots(wanted)
+            snapshots = await asyncio.to_thread(_fetch_live_snapshots, wanted)
         except Exception:
-            _snapshots = {}
+            snapshots = {}
     else:
         mode = "mock"
-        _snapshots = {s["symbol"]: s for s in mock_council_snapshots()}
+        snapshots = {s["symbol"]: s for s in mock_council_snapshots()}
 
     assessments: List[dict] = []
     missing: List[str] = []
     for sym in wanted:
-        if sym in _snapshots:
+        if sym in snapshots:
             try:
-                assessments.append(_assessment_to_dict(sym))
+                assessments.append(_assessment_to_dict(sym, snapshots))
             except Exception:
                 missing.append(sym)
         else:
@@ -227,6 +246,15 @@ class CouncilCycleRequest(BaseModel):
 
 @router.post("/council/cycle")
 async def council_cycle(req: CouncilCycleRequest) -> dict:
+    """Run the full autonomous daily cycle.
+
+    Every blocking step runs in a worker thread: the Alpaca portfolio fetch, the
+    per-symbol bar/fundamentals fetch, and ``run_daily_cycle`` itself (which is
+    CPU-bound over six personas and may fall back to its own provider calls).
+    Run inline they held the event loop for the whole cycle — measured at 0.8s
+    for two trivial concurrent requests, and far worse against the live API —
+    which is what made `/health` unanswerable during a run (D5).
+    """
     import math
 
     # Live portfolio from Alpaca when configured, else bundled mock fallback.
@@ -237,19 +265,9 @@ async def council_cycle(req: CouncilCycleRequest) -> dict:
     mode = "live"
     if is_configured():
         try:
-            client = AlpacaClient()
-            raw_positions = client.get_positions()
-            positions = [p for p in raw_positions if (
-                isinstance(p, dict)
-                and p.get("asset_class") != "us_option"
-                and str(p.get("symbol", "")).upper() != "SPY"
-            )]
-            open_option_positions = [
-                normalized for normalized in (
-                    normalize_option_position(p) for p in raw_positions
-                ) if normalized is not None and normalized["qty"] < 0
-            ]
-            account = client.get_account() or {}
+            positions, open_option_positions, account = await asyncio.to_thread(
+                _fetch_live_portfolio
+            )
         except (RuntimeError, ValueError, TypeError) as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
     if not positions and not account:
@@ -280,15 +298,40 @@ async def council_cycle(req: CouncilCycleRequest) -> dict:
     # council universe so both endpoints agree.
     cycle_candidates = req.candidates or list(COUNCIL_UNIVERSE)
 
-    return run_daily_cycle(
-        positions, cash,
-        open_option_positions=open_option_positions,
-        candidates=cycle_candidates,
-        # Live mode: inject bar-derived + fundamentals-enriched snapshots.
-        # The provider alone returns no price/vol series, so SPY would carry no
-        # recent_prices and market mood could never be classified.
-        candidate_snapshots={s["symbol"]: s for s in mock_council_snapshots()}
-        if mode == "mock" else _live_cycle_snapshots(positions, cycle_candidates),
-        portfolio_state_overrides=state_overrides,
-        allow_provider=is_configured(),
+    # Live mode: inject bar-derived + fundamentals-enriched snapshots. The
+    # provider alone returns no price/vol series, so SPY would carry no
+    # recent_prices and market mood could never be classified.
+    if mode == "mock":
+        candidate_snapshots = {s["symbol"]: s for s in mock_council_snapshots()}
+    else:
+        candidate_snapshots = await asyncio.to_thread(
+            _live_cycle_snapshots, positions, cycle_candidates
+        )
+
+    return await asyncio.to_thread(
+        lambda: run_daily_cycle(
+            positions, cash,
+            open_option_positions=open_option_positions,
+            candidates=cycle_candidates,
+            candidate_snapshots=candidate_snapshots,
+            portfolio_state_overrides=state_overrides,
+            allow_provider=is_configured(),
+        )
     )
+
+
+def _fetch_live_portfolio() -> tuple[List[dict], List[dict], dict]:
+    """Blocking Alpaca portfolio read. Runs in a worker thread."""
+    client = AlpacaClient()
+    raw_positions = client.get_positions()
+    positions = [p for p in raw_positions if (
+        isinstance(p, dict)
+        and p.get("asset_class") != "us_option"
+        and str(p.get("symbol", "")).upper() != "SPY"
+    )]
+    open_option_positions = [
+        normalized for normalized in (
+            normalize_option_position(p) for p in raw_positions
+        ) if normalized is not None and normalized["qty"] < 0
+    ]
+    return positions, open_option_positions, client.get_account() or {}

@@ -63,7 +63,19 @@ class TestPortfolio:
 # ---------------------------------------------------------------------------
 
 class TestTrade:
-    def test_valid_occ_option_order_is_accepted_in_mock_mode(self, client):
+    def test_valid_occ_option_order_passes_syntax_validation(self, client):
+        """MODIFIED TEST (was `..._is_accepted_in_mock_mode`, expected 200).
+
+        `POST /api/trade` now runs the pre-trade risk gate, and this payload is
+        an expired, uncovered, unprovenanced short call — exactly the shape the
+        gate exists to reject. What this test still guards is the original
+        intent: a valid OCC symbol is *parsed and accepted syntactically* rather
+        than 422'd by the equity-ticker rule. The distinction between 422
+        (malformed request) and 409 (well-formed but unsafe) is the contract.
+
+        A covered, provenanced order reaching the broker is covered by
+        `test_trade_route_risk.py`.
+        """
         response = client.post(
             "/api/trade",
             json={
@@ -75,9 +87,13 @@ class TestTrade:
                 "limit_price": 2.5,
             },
         )
-        assert response.status_code == 200
-        assert response.json()["submitted"] is False
-        assert response.json()["order"]["symbol"] == "AAPL240621C00175000"
+        assert response.status_code == 409
+        risk = response.json()["detail"]["risk"]
+        failed = {c["name"] for c in risk["checks"] if not c["passed"]}
+        assert "coverage" in failed
+        # Symbol parsed as an option, not rejected as a bad equity ticker.
+        sanity = next(c for c in risk["checks"] if c["name"] == "contract_sanity")
+        assert sanity["values"]["option_symbol"] == "AAPL240621C00175000"
 
     def test_api_prefix_alias_validates_trade(self, client):
         response = client.post("/api/trade", json={"nonsense": True})

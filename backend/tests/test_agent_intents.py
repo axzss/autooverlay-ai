@@ -55,6 +55,14 @@ def test_agent_run_does_not_create_intent_for_hold(client):
 
 
 def test_agent_run_intent_generation_never_calls_trade(client):
+    """MODIFIED TEST: the trailing `/api/trade` assertion now expects 409.
+
+    The point of this test is that an agent run never submits. That still holds
+    and is unchanged. What changed is the separate probe at the end: a bare
+    equity order with no `run_id` is now blocked by the pre-trade risk gate's
+    provenance check, which is the intended behaviour — reaching the trade
+    endpoint should not be enough to place an order.
+    """
     cycle = {"halted": False, "directives": [{"action": "INITIATE", "symbol": "AAPL", "params": {"strategy": "covered_call"}}]}
     with patch("backend.app.routes.agent.council_cycle", new=AsyncMock(return_value=cycle)):
         response = client.post("/api/agent/run", json={})
@@ -62,7 +70,12 @@ def test_agent_run_intent_generation_never_calls_trade(client):
     assert response.status_code == 200
     assert response.json()["orders_ready"] is False
     assert response.json()["order_intents"][0]["requires_approval"] is True
-    assert client.post("/api/trade", json={"symbol": "AAPL", "qty": 1, "side": "buy"}).status_code == 200
+    probe = client.post("/api/trade", json={"symbol": "AAPL", "qty": 1, "side": "buy"})
+    assert probe.status_code == 409
+    assert any(
+        check["name"] == "provenance" and not check["passed"]
+        for check in probe.json()["detail"]["risk"]["checks"]
+    )
     assert response.json()["order_intents"][0]["submitted"] is False
 
 

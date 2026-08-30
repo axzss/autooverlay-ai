@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import math
-import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from ..adapters.options import normalize_snapshot, parse_occ
 from ..alpaca_client import AlpacaAPIError, AlpacaClient, is_configured
 from .council import CouncilCycleRequest, council_cycle
 
@@ -20,7 +20,7 @@ def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
     if not symbol:
         return None
     delta_min, delta_max, max_dte = _tier_bands(params)
-    if None in (delta_min, delta_max, max_dte):
+    if delta_min is None or delta_max is None or max_dte is None:
         return None
     if not is_configured():
         return None
@@ -37,36 +37,33 @@ def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
     today = datetime.now(timezone.utc).date()
     candidates: list[dict] = []
     for snap in snapshots:
-        symbol_in = str(snap.get("symbol") or "").upper()
-        if not symbol_in.startswith(symbol.upper()):
+        # normalize_snapshot returns None for a malformed OCC symbol or a
+        # non-mapping payload rather than raising, so one bad contract cannot
+        # abort contract selection for the whole directive.
+        quote = normalize_snapshot(str(snap.get("symbol") or ""), snap)
+        if quote is None or quote.underlying != symbol.upper():
             continue
-        greeks = snap.get("greeks") or {}
-        delta = _safe_float(greeks.get("delta"))
-        if delta is None:
+        # A missing delta excludes the contract. It must never be treated as
+        # 0.0, which would pass any delta band trivially.
+        if quote.delta is None:
             continue
-        abs_delta = abs(float(delta))
+        abs_delta = abs(quote.delta)
         if not (delta_min <= abs_delta <= delta_max):
             continue
-        try:
-            exp = _occ_expiration(symbol_in)
-        except ValueError:
-            continue
-        dte = (exp - today).days
+        dte = quote.days_to_expiry(today)
         if not (0 < dte <= max_dte):
             continue
-        bid = _safe_float(snap.get("bid_price"))
-        ask = _safe_float(snap.get("ask_price"))
-        if bid is None and ask is None:
+        if quote.bid is None and quote.ask is None:
             continue
-        limit_price = round((bid or ask or 0.0) + 0.05, 2)
+        limit_price = round((quote.bid or quote.ask or 0.0) + 0.05, 2)
         candidates.append({
             "symbol": symbol,
-            "option_symbol": symbol_in,
-            "delta": delta,
+            "option_symbol": quote.option_symbol,
+            "delta": quote.delta,
             "dte": dte,
             "limit_price": limit_price,
-            "bid": bid,
-            "ask": ask,
+            "bid": quote.bid,
+            "ask": quote.ask,
         })
     if not candidates:
         return None
@@ -105,12 +102,18 @@ def _safe_float(value: object) -> float | None:
         return None
 
 
-def _occ_expiration(symbol: str) -> datetime.date:
-    m = re.match(r"^([A-Z.]{1,6})(\d{6})([CP])(\d{8})$", symbol.upper().replace(" ", ""))
-    if not m:
-        raise ValueError(symbol)
-    _, date, _, _ = m.groups()
-    return datetime.date(2000 + int(date[0:2]), int(date[2:4]), int(date[4:6]))
+def _occ_expiration(symbol: str) -> date:
+    """Expiration date from an OCC option symbol.
+
+    This used to call ``datetime.date(...)`` where ``datetime`` is the *class*,
+    not the module, so it raised ``TypeError: descriptor 'date' ...`` on every
+    call. The call site in ``_pick_option_contract`` only caught ``ValueError``,
+    so ``POST /api/agent/run`` returned HTTP 500 the moment live credentials and
+    one option snapshot were present (docs/BRIEF-BACKEND-V2.md D3).
+
+    Retained as a thin wrapper over the single OCC parser in the adapter.
+    """
+    return parse_occ(symbol).expiration
 
 
 def _order_intents(directives: list[dict]) -> list[dict]:

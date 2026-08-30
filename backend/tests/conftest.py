@@ -56,6 +56,54 @@ def client():
         yield c
 
 
+@pytest.fixture(autouse=True)
+def isolated_store(tmp_path, monkeypatch):
+    """Give every test its own in-memory backend store.
+
+    Without this the process-wide store persists across tests, so an order
+    written by one test would look like a duplicate submission to the next.
+    """
+    from backend.app import store as store_pkg
+
+    store_pkg.reset_store()
+    instance = store_pkg.BackendStore(":memory:")
+    monkeypatch.setattr(store_pkg, "get_store", lambda path=None: instance)
+    monkeypatch.setattr("backend.app.routes.trade.get_store", lambda path=None: instance)
+    yield instance
+    instance.close()
+    store_pkg.reset_store()
+
+
+@pytest.fixture
+def live_credentials(monkeypatch):
+    """Opt in to the `is_configured() == True` branch with fake credentials.
+
+    The module-level teardown above strips Alpaca credentials for the entire
+    session, which is correct — but it also meant every live-mode code path was
+    unreachable from tests. Defects D1, D2 and D3 (docs/BRIEF-BACKEND-V2.md) all
+    shipped under a green suite for exactly that reason.
+
+    Request this fixture to exercise the live branch. It never enables network
+    access: the caller must still monkeypatch the broker methods it needs.
+    """
+    monkeypatch.setenv("ALPACA_KEY", "TEST_KEY_NOT_A_SECRET")
+    monkeypatch.setenv("ALPACA_SECRET", "TEST_SECRET_NOT_A_SECRET")
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.test")
+    monkeypatch.setenv("APCA_API_DATA_URL", "https://data.test")
+
+    from backend.app.alpaca_client import is_configured
+
+    assert is_configured(), "live_credentials fixture failed to enable live mode"
+
+    def _no_network(*_args, **_kwargs):
+        raise AssertionError(
+            "test attempted a real HTTP call — monkeypatch the broker method"
+        )
+
+    monkeypatch.setattr("backend.app.alpaca_client.httpx.Client", _no_network)
+    return True
+
+
 @pytest.fixture
 def mock_alpaca(monkeypatch):
     """Patch common Alpaca client entry points used by backend routes.

@@ -14,6 +14,7 @@ from typing import List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field, ValidationError, constr
 
+from ..adapters.options import OptionQuote, normalize_snapshot
 from ..alpaca_client import AlpacaClient, is_configured, parse_occ_symbol
 from ..mock_data import mock_positions, mock_screen_candidates
 
@@ -79,58 +80,133 @@ class ScreenRequest(BaseModel):
     full: bool = Field(default=True, description="Run the agent DecisionEngine and enrich candidates")
 
 
-def _candidate_from_snapshot(pos_symbol: str, pos_qty: float, snap: dict) -> dict | None:
-    """Turn an Alpaca options snapshot into a covered-call candidate."""
-    symbol = snap.get("symbol") or ""
-    details = snap.get("details") or {}
-    quote = snap.get("latest_quote") or {}
-    greeks = snap.get("greeks") or {}
-    if details.get("type") != "call":
+def _candidate_from_snapshot(
+    pos_symbol: str,
+    pos_qty: float,
+    snap: dict,
+    underlying_price: float | None = None,
+) -> dict | None:
+    """Turn an Alpaca options snapshot into a covered-call candidate.
+
+    This used to read ``snap["details"]["type"]``, ``details.strike_price``,
+    ``latest_quote.bid_price`` and ``underlying_asset.price`` — none of which
+    Alpaca sends in a snapshots payload. Every candidate was therefore dropped
+    at the first line (docs/BRIEF-BACKEND-V2.md D2). All broker-field access now
+    goes through the options adapter; strike and expiry come from the OCC
+    symbol, which is always present.
+
+    ``underlying_price`` comes from the held position when the caller has it,
+    because the snapshots feed does not carry one.
+    """
+    quote = normalize_snapshot(str(snap.get("symbol") or ""), snap)
+    if quote is None or quote.option_type != "call":
         return None
-    strike = float(details.get("strike_price", 0) or 0)
-    bid = float(quote.get("bid_price", 0) or 0)
-    ask = float(quote.get("ask_price", 0) or 0)
-    mid = (bid + ask) / 2 if ask else bid
-    underlying_price = float(snap.get("underlying_asset", {}).get("price", 0) or 0)
-    oi = int(details.get("open_interest", 0) or 0)
-    exp = details.get("expiration_date") or ""
+    price = underlying_price if underlying_price is not None else _underlying_price(snap)
+    return _candidate_from_quote(pos_symbol, pos_qty, quote, price)
+
+
+def _position_price(position: dict) -> float | None:
+    """Derive a per-share price from a held position, or None.
+
+    Prefers Alpaca's ``current_price``; falls back to market_value / qty. Never
+    returns 0.0 — a zero denominator silently zeroes every annualized yield.
+    """
+    direct = _safe_positive(position.get("current_price"))
+    if direct is not None:
+        return direct
+    market_value = _safe_positive(position.get("market_value"))
+    qty = _safe_positive(position.get("qty"))
+    if market_value is not None and qty is not None:
+        return market_value / qty
+    return _safe_positive(position.get("avg_entry_price"))
+
+
+def _underlying_price(snap: dict) -> float | None:
+    """Underlying price if the payload happens to carry one, else None.
+
+    The snapshots endpoint does not include it; the option *chain* endpoint may.
+    Never defaults to 0.0 — a zero underlying silently zeroes the annualized
+    yield of every candidate.
+    """
+    for container_key in ("underlyingAsset", "underlying_asset"):
+        container = snap.get(container_key)
+        if isinstance(container, dict):
+            price = _safe_positive(container.get("price"))
+            if price is not None:
+                return price
+    return _safe_positive(snap.get("underlying_price"))
+
+
+def _safe_positive(value) -> float | None:
     try:
-        dte = max((datetime.fromisoformat(exp).replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).days, 0)
-    except ValueError:
+        result = float(value)
+    except (TypeError, ValueError):
         return None
-    if mid <= 0 or dte == 0 or underlying_price <= 0:
+    return result if math.isfinite(result) and result > 0 else None
+
+
+def _candidate_from_quote(
+    pos_symbol: str,
+    pos_qty: float,
+    quote: OptionQuote,
+    underlying_price: float | None,
+) -> dict | None:
+    """Build a covered-call candidate dict from a normalized OptionQuote."""
+    premium = quote.price
+    dte = quote.days_to_expiry()
+    if premium is None or dte <= 0:
         return None
+
     contracts = math.floor(float(pos_qty) / 100.0)
-    per_contract_premium = mid * 100
-    annualized = ((mid / underlying_price) * (365.0 / dte)) if dte else 0
-    prob_itm = max(0.0, min(1.0, 1 - abs(getattr(greeks, "delta", 0) or greeks.get("delta", 0) or 0)))
-    rec = (
-        "INITIATE_POSITION" if 0.02 <= annualized <= 0.45 and oi >= 100
-        else "MONITOR_CLOSELY" if annualized > 0.45
-        else "HOLD_POSITION"
-    )
+    per_contract_premium = premium * 100
+
+    # Annualized yield needs the underlying price. When the feed does not carry
+    # one we report None rather than inventing a denominator — a fabricated
+    # yield is worse than an absent one, and the recommendation below degrades
+    # to MONITOR_CLOSELY instead of pretending to a verdict.
+    if underlying_price is not None:
+        annualized = (premium / underlying_price) * (365.0 / dte)
+    else:
+        annualized = None
+
+    delta = quote.delta
+    prob_itm = round(min(1.0, abs(delta)), 3) if delta is not None else None
+
+    if annualized is None:
+        rec = "MONITOR_CLOSELY"
+    elif 0.02 <= annualized <= 0.45 and (quote.open_interest or 0) >= 100:
+        rec = "INITIATE_POSITION"
+    elif annualized > 0.45:
+        rec = "MONITOR_CLOSELY"
+    else:
+        rec = "HOLD_POSITION"
+
+    yield_text = f"{annualized:.1%} annualized" if annualized is not None else "yield unavailable (no underlying price)"
     return {
         "symbol": pos_symbol,
         "position_qty": pos_qty,
         "underlying_price": underlying_price,
         "contracts_available": contracts,
-        "option_symbol": symbol,
-        "strike_price": strike,
-        "expiration_date": exp,
+        "option_symbol": quote.option_symbol,
+        "strike_price": quote.strike,
+        "expiration_date": quote.expiration.isoformat(),
         "days_to_expiry": dte,
-        "bid": bid,
-        "ask": ask,
-        "last_price": mid,
-        "open_interest": oi,
-        "implied_volatility": snap.get("implied_volatility"),
-        "delta": greeks.get("delta") if isinstance(greeks, dict) else None,
-        "theta": greeks.get("theta") if isinstance(greeks, dict) else None,
-        "premium_received_per_share": round(mid, 4),
+        "bid": quote.bid,
+        "ask": quote.ask,
+        "last_price": premium,
+        "open_interest": quote.open_interest,
+        "implied_volatility": quote.implied_volatility,
+        "delta": delta,
+        "theta": quote.theta,
+        "premium_received_per_share": round(premium, 4),
         "total_premium_received": round(per_contract_premium * contracts, 2),
-        "annualized_return_rate": round(annualized, 4),
-        "probability_itm": round(prob_itm, 3),
+        "annualized_return_rate": round(annualized, 4) if annualized is not None else None,
+        "probability_itm": prob_itm,
         "recommendation": rec,
-        "reasoning": f"Covered call on held {pos_symbol}: {contracts} contract(s), {annualized:.1%} annualized at {strike:.0f} strike.",
+        "reasoning": (
+            f"Covered call on held {pos_symbol}: {contracts} contract(s), "
+            f"{yield_text} at {quote.strike:.0f} strike."
+        ),
     }
 
 
@@ -303,13 +379,28 @@ async def _screen(req: ScreenRequest) -> dict:
         except RuntimeError as exc:
             live_errors.append(f"{sym}: {exc}")
             continue
+        # The snapshots feed carries no underlying price, so take it from the
+        # held position. Without it every annualized yield would be None and
+        # nothing could be ranked.
+        underlying = _position_price(p)
         for snap in snaps:
-            cand = _candidate_from_snapshot(sym, float(p.get("qty", 0) or 0), snap)
-            if cand and cand["open_interest"] >= req.min_open_interest \
-                    and cand["annualized_return_rate"] <= req.max_annualized_return:
-                candidates.append(cand)
+            cand = _candidate_from_snapshot(
+                sym, float(p.get("qty", 0) or 0), snap, underlying_price=underlying
+            )
+            if cand is None:
+                continue
+            oi = cand.get("open_interest")
+            if req.min_open_interest > 0 and (oi is None or oi < req.min_open_interest):
+                continue
+            ann = cand.get("annualized_return_rate")
+            # An unknown yield is not a passing yield: without a price we cannot
+            # assert it sits under the sanity cap, so it is excluded here rather
+            # than ranked against candidates whose yield is known.
+            if ann is None or ann > req.max_annualized_return:
+                continue
+            candidates.append(cand)
 
-    candidates.sort(key=lambda c: c.get("annualized_return_rate", 0), reverse=True)
+    candidates.sort(key=lambda c: c.get("annualized_return_rate") or 0, reverse=True)
     candidates = candidates[: req.top_n]
 
     response = {"mode": "live", "strategy": "covered_call", "count": len(candidates), "candidates": candidates}
