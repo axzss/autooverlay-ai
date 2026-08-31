@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   intentToTradeRequest,
   feedEntryToTradeRequest,
+  mintClientOrderId,
   type MappingResult,
 } from '../lib/orderMapping'
 import type { FeedEntry, OrderIntent } from '../lib/api'
@@ -135,8 +136,60 @@ describe('intentToTradeRequest', () => {
     expectBlocked(intentToTradeRequest({ ...intent, contracts: 1.5 }), /contract count/i)
   })
 
-  it('emits no client_order_id — the submit layer owns idempotency', () => {
+  it('emits no client_order_id when no provenance is supplied', () => {
     expect('client_order_id' in (intentToTradeRequest(intent).request as object)).toBe(false)
+  })
+
+  // ---- Provenance and idempotency. ------------------------------------------
+  // trade.py:36-42 accepts client_order_id, run_id and directive_ref, records
+  // both provenance fields on every intent (:180, :231), and states that absent
+  // provenance is allowed "only with an explicit, audited manual override". An
+  // order in the ledger with neither cannot be traced to the run that proposed
+  // it, which makes the audit trail decorative.
+
+  it('forwards client_order_id, run_id and directive_ref when supplied', () => {
+    const req = intentToTradeRequest(intent, {
+      clientOrderId: 'ao-key-1',
+      runId: 'run-42',
+      directiveRef: OCC,
+    }).request
+    expect(req?.client_order_id).toBe('ao-key-1')
+    expect(req?.run_id).toBe('run-42')
+    expect(req?.directive_ref).toBe(OCC)
+  })
+
+  it('omits provenance keys entirely when their values are null', () => {
+    const req = intentToTradeRequest(intent, {
+      clientOrderId: null,
+      runId: null,
+      directiveRef: null,
+    }).request as object
+    expect('client_order_id' in req).toBe(false)
+    expect('run_id' in req).toBe(false)
+    expect('directive_ref' in req).toBe(false)
+  })
+
+  it('attaches no provenance to a blocked mapping — there is no request to attach it to', () => {
+    const result = intentToTradeRequest(
+      { ...intent, option_symbol: null },
+      { clientOrderId: 'ao-key-2', runId: 'run-42' },
+    )
+    expect(result.request).toBeNull()
+  })
+})
+
+describe('mintClientOrderId', () => {
+  it('produces a distinct key per call', () => {
+    const keys = new Set(Array.from({ length: 50 }, () => mintClientOrderId()))
+    expect(keys.size).toBe(50)
+  })
+
+  it('stays within the backend max_length of 128 (trade.py:36)', () => {
+    expect(mintClientOrderId().length).toBeLessThanOrEqual(128)
+  })
+
+  it('is prefixed so an order placed by this UI is identifiable in the ledger', () => {
+    expect(mintClientOrderId()).toMatch(/^ao-/)
   })
 })
 

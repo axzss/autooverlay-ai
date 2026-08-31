@@ -38,6 +38,22 @@ export interface MappingResult {
   blocked: string | null
 }
 
+/**
+ * Provenance carried from the agent run into the order.
+ *
+ * `backend/app/routes/trade.py:39-42` records `run_id` and `directive_ref` on
+ * every intent and states that absent provenance is allowed "only with an
+ * explicit, audited manual override". An order in the ledger with neither
+ * cannot be traced back to the run that proposed it, which reduces the audit
+ * trail to a list of orders.
+ */
+export interface OrderProvenance {
+  runId?: string | null
+  directiveRef?: string | null
+  /** Idempotency key. Minted once per approval and REUSED on retry. */
+  clientOrderId?: string | null
+}
+
 function blocked(reason: string): MappingResult {
   return { request: null, blocked: reason }
 }
@@ -72,6 +88,7 @@ function buildRequest(args: {
   side: 'buy' | 'sell'
   timeInForce: string
   limitPrice: number | null
+  provenance?: OrderProvenance
 }): TradeRequest {
   const request: TradeRequest = {
     symbol: args.optionSymbol,
@@ -81,11 +98,21 @@ function buildRequest(args: {
     time_in_force: args.timeInForce || 'day',
   }
   if (args.limitPrice != null) request.limit_price = args.limitPrice
+  // Provenance and idempotency are omitted rather than sent as null: the
+  // backend's Optional fields default to None, and an explicit null adds a
+  // field the store has to interpret.
+  const p = args.provenance
+  if (p?.clientOrderId) request.client_order_id = p.clientOrderId
+  if (p?.runId) request.run_id = p.runId
+  if (p?.directiveRef) request.directive_ref = p.directiveRef
   return request
 }
 
 /** Maps an agent order intent to a trade request, or refuses with a reason. */
-export function intentToTradeRequest(intent: OrderIntent): MappingResult {
+export function intentToTradeRequest(
+  intent: OrderIntent,
+  provenance?: OrderProvenance,
+): MappingResult {
   const occ = intent.option_symbol?.trim()
   if (!occ) {
     return blocked(
@@ -107,6 +134,7 @@ export function intentToTradeRequest(intent: OrderIntent): MappingResult {
       side: intent.side === 'sell' ? 'sell' : 'buy',
       timeInForce: intent.time_in_force,
       limitPrice: usableLimitPrice(intent.limit_price),
+      provenance,
     }),
     blocked: null,
   }
@@ -119,7 +147,10 @@ export function intentToTradeRequest(intent: OrderIntent): MappingResult {
  * and the caller must say the word MARKET in its confirmation step, because a
  * market order on an illiquid option fills at a poor price.
  */
-export function feedEntryToTradeRequest(entry: FeedEntry): MappingResult {
+export function feedEntryToTradeRequest(
+  entry: FeedEntry,
+  provenance?: OrderProvenance,
+): MappingResult {
   const occ = entry.optionSymbol?.trim()
   if (!occ) {
     return blocked(
@@ -141,7 +172,24 @@ export function feedEntryToTradeRequest(entry: FeedEntry): MappingResult {
       side: 'sell',
       timeInForce: 'day',
       limitPrice: null,
+      provenance,
     }),
     blocked: null,
   }
+}
+
+/**
+ * Mints an idempotency key for one approval.
+ *
+ * Reused verbatim on every retry of the SAME approval so the backend's
+ * idempotency store (`trade.py:201`) recognises the payload and returns the
+ * original response instead of placing a second order. A fresh key per retry
+ * would defeat the entire mechanism.
+ */
+export function mintClientOrderId(): string {
+  const rand =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 12)
+  return `ao-${Date.now().toString(36)}-${rand}`.slice(0, 128)
 }

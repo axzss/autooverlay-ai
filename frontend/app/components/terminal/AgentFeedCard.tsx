@@ -5,16 +5,19 @@ import { ChevronDown, ChevronRight, Play, CheckCircle2, XCircle } from 'lucide-r
 import {
   api,
   riskBadgeClasses,
+  riskBlockFrom,
   type FeedEntry,
+  type RiskDecision,
   type TradeResponse,
 } from '../../../lib/api'
-import { feedEntryToTradeRequest } from '../../../lib/orderMapping'
+import { feedEntryToTradeRequest, mintClientOrderId } from '../../../lib/orderMapping'
+import RiskDecisionPanel from '../risk/RiskDecisionPanel'
 
 type ExecuteState =
   | { phase: 'idle' }
   | { phase: 'confirm' }
   | { phase: 'submitting' }
-  | { phase: 'done'; ok: boolean; message: string }
+  | { phase: 'done'; ok: boolean; message: string; risk?: RiskDecision | null }
 
 function ActionPill({ action }: { action: string }) {
   const cls =
@@ -44,7 +47,10 @@ export default function AgentFeedCard({ entry }: { entry: FeedEntry }) {
     // Built by lib/orderMapping, which refuses to fall back to the underlying
     // ticker. The old `entry.optionSymbol ?? entry.symbol` sold the SHARES when
     // no contract was resolved — and per KNOWN-ISSUES #2 that is the normal case.
-    const { request, blocked } = feedEntryToTradeRequest(entry)
+    const { request, blocked } = feedEntryToTradeRequest(entry, {
+      directiveRef: entry.optionSymbol ?? entry.symbol,
+      clientOrderId: mintClientOrderId(),
+    })
     if (!request) {
       setExec({
         phase: 'done',
@@ -56,19 +62,34 @@ export default function AgentFeedCard({ entry }: { entry: FeedEntry }) {
     setExec({ phase: 'submitting' })
     try {
       const res: TradeResponse = await api.placeTrade(request)
+      const duplicate = res.duplicate === true
       setExec({
         phase: 'done',
         ok: true,
-        message:
-          res.mode === 'mock' || res.submitted === false
+        risk: res.risk ?? null,
+        message: duplicate
+          ? // The idempotency store recognised this payload and did NOT resubmit.
+            // Reporting it as a fresh submission would tell the operator a second
+            // order exists when none does.
+            `Duplicate detected — original order returned, nothing resubmitted${res.original_submitted_at ? ` (first sent ${res.original_submitted_at})` : ''}`
+          : res.mode === 'mock' || res.submitted === false
             ? `Mock mode — order validated but not submitted (${String(res.reason ?? 'backend not configured')})`
             : `Order submitted: ${res.order?.symbol ?? request.symbol} x${res.order?.qty ?? entry.contracts} — status ${res.order?.status ?? 'accepted'}`,
       })
     } catch (err) {
+      // A 409 is the pre-trade risk gate refusing, and it ships every check it
+      // decided on. Rendering that as a truncated string threw away the only
+      // explanation the operator has.
+      const risk = riskBlockFrom(err)
       setExec({
         phase: 'done',
         ok: false,
-        message: err instanceof Error ? err.message : 'Trade failed',
+        risk,
+        message: risk
+          ? 'Blocked by the pre-trade risk gate'
+          : err instanceof Error
+            ? err.message
+            : 'Trade failed',
       })
     }
   }
@@ -159,16 +180,21 @@ export default function AgentFeedCard({ entry }: { entry: FeedEntry }) {
       )}
 
       {exec.phase === 'done' && (
-        <p
-          className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs ${
-            exec.ok
-              ? 'border-[#22c55e]/40 bg-[#052e16] text-[#22c55e]'
-              : 'border-[#ef4444]/40 bg-[#450a0a] text-[#f87171]'
-          }`}
-        >
-          {exec.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-          {exec.message}
-        </p>
+        <div className="space-y-2">
+          <p
+            className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs ${
+              exec.ok
+                ? 'border-[#22c55e]/40 bg-[#052e16] text-[#22c55e]'
+                : 'border-[#ef4444]/40 bg-[#450a0a] text-[#f87171]'
+            }`}
+          >
+            {exec.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+            {exec.message}
+          </p>
+          {/* The gate's checks, with the numbers each was decided on. Previously
+              this arrived as JSON truncated at 200 characters. */}
+          {exec.risk && <RiskDecisionPanel decision={exec.risk} />}
+        </div>
       )}
     </div>
   )

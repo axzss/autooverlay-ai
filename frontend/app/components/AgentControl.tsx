@@ -3,6 +3,7 @@
 import { Bot, Loader2, Play, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { useAgentRun } from './AgentRunProvider'
+import RiskDecisionPanel from './risk/RiskDecisionPanel'
 import type { OrderIntent } from '../../lib/api'
 import {
   motion,
@@ -16,11 +17,12 @@ import {
  * Manual trigger for POST /api/agent/run.
  *
  * Recommendation-only: the backend has no auto-submit path, always returns
- * orders_ready=false, and every intent carries requires_approval=true. This card
- * must never call /api/trade.
+ * orders_ready=false, and every intent carries requires_approval=true. Approval
+ * goes through AgentRunProvider, which is the only module that calls
+ * /api/trade — this card never builds an order request itself.
  */
 export default function AgentControl() {
-  const { run, running, error, runAgent, approveOrder, lastApproval } = useAgentRun()
+  const { run, running, error, runAgent, approveOrder, lastApproval, approving } = useAgentRun()
   const reduce = useReducedMotion()
 
   const halted = run?.risk_summary?.halted === true
@@ -164,11 +166,20 @@ export default function AgentControl() {
                     {intent.requires_approval && !intent.submitted && (
                       <motion.button
                         onClick={() => approveOrder(intent)}
-                        className="mt-1 rounded border border-[#22c55e]/60 bg-[#052e16] px-2 py-1 text-[10px] font-semibold text-[#22c55e] hover:bg-[#0a3318]"
+                        disabled={approving || !intent.option_symbol}
+                        className="mt-1 rounded border border-[#22c55e]/60 bg-[#052e16] px-2 py-1 text-[10px] font-semibold text-[#22c55e] hover:bg-[#0a3318] disabled:cursor-not-allowed disabled:opacity-40"
                         whileTap={{ scale: 0.97 }}
                       >
-                        Approve & Submit
+                        {approving ? 'Submitting…' : 'Approve & Submit'}
                       </motion.button>
+                    )}
+                    {/* No contract means no submittable order. Saying so here beats
+                        a button that fails after the click — and the underlying
+                        ticker is never an acceptable substitute. */}
+                    {intent.requires_approval && !intent.submitted && !intent.option_symbol && (
+                      <p className="text-[10px] text-[#f87171]">
+                        No option contract resolved — cannot submit.
+                      </p>
                     )}
                   </li>
                 ))}
@@ -176,11 +187,25 @@ export default function AgentControl() {
             )}
 
             {lastApproval?.status && (
-              <p className="text-[11px] text-[#22c55e]">Approval result: {lastApproval.status}</p>
+              <p className="text-[11px] text-[#22c55e]">
+                Approval result: {lastApproval.status}
+                {lastApproval.simulated && ' — validated, not submitted'}
+              </p>
+            )}
+            {/* A recognised duplicate is the idempotency store WORKING. Reporting
+                it as a plain success would tell the operator a second order was
+                placed when none was. */}
+            {lastApproval?.duplicate && (
+              <p className="text-[11px] text-[#fbbf24]">
+                Duplicate detected — the original order was returned, nothing was resubmitted.
+              </p>
             )}
             {lastApproval?.error && (
               <p className="text-[11px] text-[#f87171]">Approval failed: {lastApproval.error}</p>
             )}
+            {/* The gate's reasons, rendered as reasons. This used to arrive as a
+                JSON blob truncated at 200 characters. */}
+            {lastApproval?.risk && <RiskDecisionPanel decision={lastApproval.risk} />}
           </motion.div>
         )}
 

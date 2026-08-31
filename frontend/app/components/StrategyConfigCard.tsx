@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Save, SlidersHorizontal, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { api, ApiError } from '../../lib/api'
 
 type StrategyParams = {
   take_profit_pct: number
@@ -40,10 +41,11 @@ export default function StrategyConfigCard() {
     let cancelled = false
     async function load() {
       try {
-        const res = await fetch('/api/strategy/config')
-        if (!res.ok) throw new Error(`GET failed (${res.status})`)
-        const data = await res.json()
-        if (!cancelled) setParams({ ...DEFAULTS, ...data.config })
+        // Through lib/api, not a raw fetch(): that bypassed the shared timeout
+        // budget and the timed-out-vs-unreachable distinction, so a hung backend
+        // left this card spinning with no diagnosis.
+        const data = await api.getStrategyConfig()
+        if (!cancelled) setParams({ ...DEFAULTS, ...(data.config ?? {}) })
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load config')
       } finally {
@@ -66,24 +68,24 @@ export default function StrategyConfigCard() {
     setError(null)
     setSaved(false)
     try {
-      const res = await fetch('/api/strategy/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      })
-      if (!res.ok) {
-        let detail = `Save failed (${res.status})`
-        try {
-          const body = await res.json()
-          if (body?.detail?.errors) detail = body.detail.errors.join('; ')
-        } catch { /* keep generic message */ }
-        throw new Error(detail)
-      }
-      const data = await res.json()
-      setParams({ ...DEFAULTS, ...data.config })
+      // The PUT was the worse of the two raw fetches: a mutating write with no
+      // timeout can hang forever, leaving the operator unable to tell whether
+      // the risk thresholds were saved or not.
+      const data = await api.updateStrategyConfig(params as unknown as Record<string, unknown>)
+      setParams({ ...DEFAULTS, ...(data.config ?? {}) })
       setSaved(true)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save config')
+      // The route answers 422 with {detail: {errors: [...]}} on validation
+      // failure; ApiError now carries that parsed body instead of a truncated
+      // string, so the field-level reasons survive.
+      let message = e instanceof Error ? e.message : 'Failed to save config'
+      if (e instanceof ApiError) {
+        const detail = e.detail as { errors?: unknown } | undefined
+        if (Array.isArray(detail?.errors) && detail.errors.length > 0) {
+          message = detail.errors.map(String).join('; ')
+        }
+      }
+      setError(message)
     } finally {
       setSaving(false)
     }

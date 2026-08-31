@@ -1,13 +1,19 @@
 'use client'
 
-import { Menu } from 'lucide-react'
+import { Menu, LogOut, User } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
 import MobileSidebar from '@/components/MobileSidebar'
 import { LogoMark } from '@/components/brand/Logo'
+import { useAuth } from '@/components/auth/AuthProvider'
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { user, logout, csrfToken } = useAuth()
+
+  const handleLogout = async () => {
+    await logout()
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#1e293b] bg-[#020617] px-4 sm:px-6">
@@ -29,6 +35,21 @@ export default function Header() {
             <span className="text-[11px] font-medium text-[#f59e0b] uppercase tracking-wider">PAPER TRADING</span>
           </div>
         </div>
+
+        {user && (
+          <div className="hidden sm:flex items-center gap-2">
+            <span className="flex items-center gap-1.5 text-sm text-[#94a3b8]">
+              <User className="h-3.5 w-3.5" />
+              {user.username}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="rounded border border-[#334155] px-3 py-1.5 text-xs text-[#94a3b8] hover:border-[#ef4444]/50 hover:text-[#f87171] transition-colors"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         <button
           onClick={() => setMobileOpen(true)}

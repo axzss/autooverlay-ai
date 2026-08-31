@@ -42,6 +42,21 @@ export interface TradeRequest {
   type?: 'market' | 'limit'
   limit_price?: number | string | null
   time_in_force?: string
+  /**
+   * Idempotency key. `backend/app/routes/trade.py:36` accepts it, `:168`
+   * forwards it to Alpaca, and Alpaca itself rejects a duplicate — so a retry
+   * after a network timeout converges instead of doubling the position.
+   */
+  client_order_id?: string
+  /**
+   * Provenance. The backend records both on every intent
+   * (`trade.py:180`, `:231`) and its own comment states that absent provenance
+   * is allowed "only with an explicit, audited manual override". Without these
+   * an order in the ledger cannot be traced back to the run that proposed it,
+   * which makes the audit trail decorative.
+   */
+  run_id?: string
+  directive_ref?: string
 }
 
 export interface TradeResponse {
@@ -53,6 +68,12 @@ export interface TradeResponse {
   mode?: string
   submitted?: boolean
   reason?: string
+  /** True when the idempotency store recognised this payload and did NOT resubmit. */
+  duplicate?: boolean
+  idempotency_key?: string
+  original_submitted_at?: string
+  /** The gate's verdict travels with every accepted order too, not just refusals. */
+  risk?: RiskDecision
   order?: {
     id?: string
     symbol?: string
@@ -62,6 +83,60 @@ export interface TradeResponse {
     [key: string]: unknown
   }
   [key: string]: unknown
+}
+
+/** Response of POST /api/trade/preflight — the gate, without submitting. */
+export interface PreflightResponse {
+  mode?: string
+  submitted?: boolean
+  risk: RiskDecision
+}
+
+/** One row of GET /api/trade/ledger. Field set mirrors the store's intent rows. */
+export interface LedgerIntent {
+  id?: number | string
+  status?: string
+  mode?: string
+  created_at?: string
+  payload?: Record<string, unknown>
+  risk?: RiskDecision
+  response?: Record<string, unknown>
+  run_id?: string | null
+  directive_ref?: string | null
+  [key: string]: unknown
+}
+
+export interface LedgerResponse {
+  /** True when the store fell back to a degraded mode — surface it, never hide it. */
+  degraded?: boolean
+  degraded_reason?: string | null
+  schema_version?: number | string
+  /**
+   * An intent written with no resolved broker outcome. The backend's own words:
+   * "an order may exist that this system does not know the outcome of.
+   * Reconcile those against /api/trade/orders — do not assume."
+   */
+  pending?: LedgerIntent[]
+  intents?: LedgerIntent[]
+}
+
+export interface AuditEvent {
+  route?: string
+  action?: string
+  outcome?: string
+  detail?: Record<string, unknown>
+  created_at?: string
+  [key: string]: unknown
+}
+
+export interface AuditResponse {
+  degraded?: boolean
+  events?: AuditEvent[]
+}
+
+export interface OrdersResponse {
+  mode?: string
+  orders?: Array<Record<string, unknown>>
 }
 
 export interface HealthResponse {
@@ -103,10 +178,59 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly cause?: unknown,
+    /** HTTP status when the backend answered, undefined when it did not. */
+    public readonly status?: number,
+    /**
+     * Parsed JSON error body when the backend sent one. FastAPI puts it under
+     * `detail`, so a 409 from the risk gate arrives here as
+     * `{ message, risk }` — structured, renderable, and NOT a truncated string.
+     */
+    public readonly detail?: unknown,
   ) {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+/** One check from the pre-trade risk gate (backend/app/risk/models.py::CheckResult). */
+export interface RiskCheck {
+  name: string
+  passed: boolean
+  severity: 'BLOCK' | 'WARN' | 'INFO'
+  detail: string
+  values?: Record<string, unknown>
+}
+
+/** The gate's verdict (backend/app/risk/models.py::RiskDecision). */
+export interface RiskDecision {
+  allowed: boolean
+  checks: RiskCheck[]
+  hard_failures: string[]
+  warnings: string[]
+  evaluated_at?: string
+  snapshot_hash?: string
+  mode?: string
+  override_applied?: boolean
+}
+
+/** Body of the 409 raised by POST /api/trade when the gate blocks an order. */
+export interface RiskBlockDetail {
+  message?: string
+  risk?: RiskDecision
+}
+
+/**
+ * Extracts the risk decision from a blocked-order error.
+ *
+ * `POST /api/trade` answers 409 with `{message, risk}` when the gate refuses —
+ * deliberately 409 and not 422 so the UI can tell "you sent nonsense" from
+ * "this trade is unsafe right now" (backend/app/routes/trade.py:186-195).
+ * Without this the reason reached the operator as a truncated JSON blob.
+ */
+export function riskBlockFrom(err: unknown): RiskDecision | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null
+  const detail = err.detail as RiskBlockDetail | undefined
+  return detail?.risk ?? null
 }
 
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD'])
@@ -148,14 +272,35 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         // the catch below, is not an ApiError, and gets wrapped as
         // "unreachable" — reporting a backend that ANSWERED as a dead one.
         // The status is the diagnostically important part; the body is a bonus.
-        let detail = ''
+        let raw = ''
         try {
-          const body = typeof res.text === 'function' ? await res.text() : ''
-          if (body) detail = `: ${body.slice(0, 200)}`
+          raw = typeof res.text === 'function' ? await res.text() : ''
         } catch {
           /* body unreadable — keep the status, drop the detail */
         }
-        const error = new ApiError(`API ${path} responded ${res.status}${detail}`)
+        // Structured errors must survive as structure. FastAPI answers 409 from
+        // the risk gate with {detail: {message, risk}}; slicing that into a 200
+        // character string handed the operator a truncated JSON blob instead of
+        // the reasons the gate refused the trade.
+        let detail: unknown
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as { detail?: unknown }
+            detail = parsed?.detail ?? parsed
+          } catch {
+            detail = raw
+          }
+        }
+        const summary =
+          typeof detail === 'object' && detail !== null
+            ? ((detail as { message?: string }).message ?? '')
+            : String(detail ?? '')
+        const error = new ApiError(
+          `API ${path} responded ${res.status}${summary ? `: ${summary.slice(0, 200)}` : ''}`,
+          undefined,
+          res.status,
+          detail,
+        )
         if (!isRetryable || attempt === (isRetryable ? 2 : 1) || !RETRYABLE_STATUS.has(res.status)) {
           throw error
         }
@@ -349,6 +494,37 @@ export const api = {
   placeTrade: (body: TradeRequest) =>
     request<TradeResponse>('/api/trade', {
       method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /**
+   * Runs the pre-trade risk gate WITHOUT submitting. The backend built this
+   * route for exactly this UI (`trade.py:123`): "Lets the UI disable a submit
+   * button and show why, instead of the user discovering the rejection after
+   * clicking."
+   */
+  preflightTrade: (body: TradeRequest) =>
+    request<PreflightResponse>('/api/trade/preflight', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** Every order this backend attempted, blocked or submitted. */
+  getOrderLedger: (limit = 50) =>
+    request<LedgerResponse>(`/api/trade/ledger?limit=${encodeURIComponent(String(limit))}`),
+  getAuditTrail: (limit = 50) =>
+    request<AuditResponse>(`/api/trade/audit?limit=${encodeURIComponent(String(limit))}`),
+  getOrders: (status: 'open' | 'closed' | 'all' = 'open') =>
+    request<OrdersResponse>(`/api/trade/orders?status=${encodeURIComponent(status)}`),
+  /**
+   * Live StrategyConfig. Previously fetched with a raw `fetch()` inside
+   * StrategyConfigCard, bypassing the timeout budget and the
+   * timed-out-vs-unreachable distinction the rest of the app relies on.
+   * The PUT was the worse of the two: a mutating write with no timeout can
+   * hang indefinitely with no way to tell whether the config was saved.
+   */
+  getStrategyConfig: () => request<{ config?: Record<string, unknown> }>('/api/strategy/config'),
+  updateStrategyConfig: (body: Record<string, unknown>) =>
+    request<{ config?: Record<string, unknown> }>('/api/strategy/config', {
+      method: 'PUT',
       body: JSON.stringify(body),
     }),
 }

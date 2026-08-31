@@ -1,13 +1,39 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, ClipboardList, Loader2, Play, Terminal as TerminalIcon } from 'lucide-react'
+import { AlertTriangle, ClipboardList, Loader2, Play, ShieldAlert, Terminal as TerminalIcon } from 'lucide-react'
 import { AnimatePresence } from 'framer-motion'
 import { motion, useReducedMotion, EASE, DURATION, pressable } from '@/components/motion/primitives'
-import { api, type OrderIntent, type TradeRequest, type TradeResponse } from '../../../lib/api'
+import {
+  api,
+  riskBlockFrom,
+  type RiskDecision,
+  type TradeRequest,
+  type TradeResponse,
+} from '../../../lib/api'
+import { mintClientOrderId } from '../../../lib/orderMapping'
+import RiskDecisionPanel from '../risk/RiskDecisionPanel'
 
 type Side = 'buy' | 'sell'
 type OrderType = 'market' | 'limit'
+
+/**
+ * Free-form order entry.
+ *
+ * Two things make this panel different from the agent-driven approval paths, and
+ * both are why it needs its own guard rails:
+ *
+ *  1. Nothing here is validated by the council. The symbol, side and quantity are
+ *     whatever was typed, so the pre-trade risk gate is the only thing between a
+ *     typo and a real paper order.
+ *  2. It previously submitted on a single click with no confirmation and no
+ *     idempotency key, so a double-click could place two orders.
+ *
+ * The flow is now: type → preflight (POST /api/trade/preflight, runs the gate
+ * without submitting) → read the verdict → confirm → submit. The submit button
+ * is a UX affordance, NOT a security control: the real gate is server-side in
+ * `backend/app/risk/`, and this panel must never be the way around it.
+ */
 
 export default function ManualTradePanel() {
   const reduce = useReducedMotion()
@@ -17,7 +43,14 @@ export default function ManualTradePanel() {
   const [orderType, setOrderType] = useState<OrderType>('market')
   const [limitPrice, setLimitPrice] = useState('')
   const [tif, setTif] = useState('day')
-  const [running, setRunning] = useState(false)
+  /**
+   * idle → confirm → done. The confirm step exists so a single click cannot place
+   * an order, and `pendingKey` carries the idempotency key across it.
+   */
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'done'>('idle')
+  const [pendingKey, setPendingKey] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [risk, setRisk] = useState<RiskDecision | null>(null)
   const [result, setResult] = useState<TradeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,28 +72,90 @@ export default function ManualTradePanel() {
   useEffect(() => {
     setResult(null)
     setError(null)
+    // Any edit invalidates the verdict: a gate decision belongs to the exact
+    // order it was computed for, not to the form.
+    setPhase('idle')
+    setRisk(null)
+    setPendingKey(null)
   }, [symbol, side, qty, orderType, limitPrice, tif])
 
-  const submit = async () => {
-    if (!canSubmit || running) return
-    setRunning(true)
+  /**
+   * Builds the request. `limit_price` is OMITTED rather than sent as null so the
+   * backend applies its own market default instead of receiving a field it must
+   * interpret — and `trade.py:27` rejects `limit_price: 0` outright (gt=0).
+   */
+  const buildPayload = (clientOrderId: string): TradeRequest => {
+    const payload: TradeRequest = {
+      symbol: symbol.trim().toUpperCase(),
+      qty: qtyNum,
+      side,
+      type: orderType,
+      time_in_force: tif,
+      client_order_id: clientOrderId,
+    }
+    if (limitEnabled && limitNum != null && limitNum > 0) payload.limit_price = limitNum
+    return payload
+  }
+
+  /** Runs the gate without submitting, so the verdict is visible BEFORE the click. */
+  const preflight = async () => {
+    if (!canSubmit || busy) return
+    setBusy(true)
     setError(null)
     setResult(null)
+    setRisk(null)
+    // Minted once here and reused on submit and on every retry of THIS order, so
+    // the backend's idempotency store (trade.py:201) recognises a repeat instead
+    // of placing a second order.
+    const key = mintClientOrderId()
     try {
-      const payload: TradeRequest = {
-        symbol: symbol.trim().toUpperCase(),
-        qty: qtyNum,
-        side,
-        type: orderType,
-        time_in_force: tif,
-        limit_price: limitNum,
-      }
-      const res = await api.placeTrade(payload)
-      setResult(res)
+      const res = await api.preflightTrade(buildPayload(key))
+      setRisk(res.risk ?? null)
+      setPendingKey(key)
+      setPhase('confirm')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Trade failed')
+      const blocked = riskBlockFrom(err)
+      setRisk(blocked)
+      setError(
+        blocked
+          ? 'Blocked by the pre-trade risk gate'
+          : err instanceof Error
+            ? err.message
+            : 'Preflight failed',
+      )
+      setPhase('idle')
     } finally {
-      setRunning(false)
+      setBusy(false)
+    }
+  }
+
+  const submit = async () => {
+    // `busy` alone is not enough: React state settles after the event, so two
+    // fast clicks can both observe busy=false. The phase guard closes that
+    // window by requiring an explicit confirm step first.
+    if (phase !== 'confirm' || !pendingKey || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.placeTrade(buildPayload(pendingKey))
+      setResult(res)
+      setRisk(res.risk ?? risk)
+      setPhase('done')
+    } catch (err) {
+      const blocked = riskBlockFrom(err)
+      setRisk(blocked ?? risk)
+      setError(
+        blocked
+          ? 'Blocked by the pre-trade risk gate'
+          : err instanceof Error
+            ? err.message
+            : 'Trade failed',
+      )
+      // Stay in `confirm` so a retry reuses the SAME idempotency key. A fresh
+      // key on retry would defeat the store and could double the position.
+      setPhase('confirm')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -150,20 +245,61 @@ export default function ManualTradePanel() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <motion.button
-          onClick={submit}
-          disabled={!canSubmit || running}
-          className="inline-flex items-center gap-2 rounded border border-[#22c55e]/60 bg-[#052e16] px-3 py-1.5 text-xs font-semibold text-[#22c55e] hover:bg-[#0a3318] disabled:opacity-50"
-          {...(reduce ? {} : pressable)}
-        >
-          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-          {running ? 'Submitting…' : 'Submit Trade'}
-        </motion.button>
+        {phase === 'confirm' ? (
+          <>
+            {/* Restate the order in words before it is placed. The gate's verdict
+                sits directly below, so the decision is made with it in view. */}
+            <span className="inline-flex items-center gap-1.5 rounded border border-[#f59e0b]/50 bg-[#451a03] px-2 py-1.5 text-[11px] text-[#fbbf24]">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              {side.toUpperCase()} {qtyNum} {symbol.trim().toUpperCase()} ·{' '}
+              {limitEnabled && limitNum != null ? (
+                `limit ${limitNum.toFixed(2)}`
+              ) : (
+                <span className="font-semibold text-[#f87171]">MARKET</span>
+              )}{' '}
+              · {tif.toUpperCase()}
+            </span>
+            <motion.button
+              onClick={submit}
+              disabled={busy}
+              className="inline-flex items-center gap-2 rounded border border-[#22c55e]/60 bg-[#052e16] px-3 py-1.5 text-xs font-semibold text-[#22c55e] hover:bg-[#0a3318] disabled:opacity-50"
+              {...(reduce ? {} : pressable)}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              {busy ? 'Submitting…' : 'Confirm & Submit'}
+            </motion.button>
+            <button
+              onClick={() => {
+                setPhase('idle')
+                setPendingKey(null)
+              }}
+              disabled={busy}
+              className="rounded border border-[#334155] px-2 py-1.5 text-xs text-[#94a3b8] hover:text-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <motion.button
+            onClick={preflight}
+            disabled={!canSubmit || busy || phase === 'done'}
+            className="inline-flex items-center gap-2 rounded border border-[#22c55e]/60 bg-[#052e16] px-3 py-1.5 text-xs font-semibold text-[#22c55e] hover:bg-[#0a3318] disabled:opacity-50"
+            {...(reduce ? {} : pressable)}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardList className="h-3.5 w-3.5" />}
+            {busy ? 'Checking…' : 'Check Risk & Review'}
+          </motion.button>
+        )}
 
         <span className="text-[10px] text-[#64748b]">
-          Orders are sent to Alpaca when configured; otherwise they are validated only.
+          Every order runs the server-side risk gate first. Orders reach Alpaca only
+          when credentials are configured; otherwise they are validated only.
         </span>
       </div>
+
+      {/* Shown for a preflight verdict, a block and an accepted order alike — the
+          reasons are equally worth reading when the answer is yes. */}
+      {risk && <RiskDecisionPanel decision={risk} />}
 
       <AnimatePresence initial={false}>
         {error && (
@@ -190,8 +326,21 @@ export default function ManualTradePanel() {
             className="overflow-hidden rounded border border-[#1e293b] bg-[#0a0f1a] p-3 space-y-1"
           >
             <p className="text-[11px] font-semibold text-[#22c55e]">
-              Trade submitted — {result.status ?? 'pending'}
+              {result.duplicate
+                ? 'Duplicate detected — original order returned'
+                : result.submitted === false
+                  ? `Validated, not submitted — ${String(result.reason ?? 'Alpaca not configured')}`
+                  : `Trade submitted — ${result.status ?? 'pending'}`}
             </p>
+            {/* The store recognised this payload and did NOT call the broker
+                again. Presenting that as a fresh submission would tell the
+                operator a second order exists when none does. */}
+            {result.duplicate && (
+              <p className="text-[11px] text-[#fbbf24]">
+                Nothing was resubmitted
+                {result.original_submitted_at ? ` — first sent ${result.original_submitted_at}` : ''}.
+              </p>
+            )}
             <p className="text-[11px] text-[#94a3b8]">
               {String(result.symbol)} · {String(result.side)} · {String(result.qty)} · {String(result.type)} · {String(result.time_in_force)}
             </p>

@@ -314,6 +314,58 @@ describe('api client request URLs', () => {
     await expect(api.getHealth()).rejects.toThrow('responded 422: symbol required')
   })
 
+  it('keeps a JSON error body as structure, not a sliced string', async () => {
+    // The risk gate's 409 body is {detail: {message, risk: {...}}}. Stringifying
+    // and slicing it to 200 chars destroyed the reasons the gate refused —
+    // the single most important explanation this UI has to give.
+    const risk = { allowed: false, checks: [], hard_failures: ['naked short call'], warnings: [] }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        text: async () => JSON.stringify({ detail: { message: 'order blocked', risk } }),
+        json: async () => ({}),
+      })),
+    )
+    await expect(api.getHealth()).rejects.toMatchObject({
+      status: 409,
+      detail: { message: 'order blocked', risk },
+    })
+  })
+
+  it('summarises a structured error by its message, not its raw JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 409,
+        text: async () => JSON.stringify({ detail: { message: 'order blocked', risk: {} } }),
+        json: async () => ({}),
+      })),
+    )
+    await expect(api.getHealth()).rejects.toThrow('responded 409: order blocked')
+    await expect(api.getHealth()).rejects.not.toThrow('{')
+  })
+
+  it('exposes the status on every answered error so callers can branch on it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 500, text: async () => 'boom', json: async () => ({}) })),
+    )
+    await expect(api.getHealth()).rejects.toMatchObject({ status: 500 })
+  })
+
+  it('leaves status undefined when the backend never answered', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('network down')
+      }),
+    )
+    await expect(api.getHealth()).rejects.toMatchObject({ status: undefined })
+  })
+
   it('clears the outer abort timer when a retryable GET succeeds first try', async () => {
     // The old `finally` only cleared the outer timer on the FINAL attempt, so a
     // retryable GET that succeeded immediately left it armed and an abort fired

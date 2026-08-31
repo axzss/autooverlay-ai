@@ -38,6 +38,9 @@ frontend/
 │   ├── types/portfolio.ts      AccountInfo, Position, Order
 │   └── data/mock_portfolio.json  offline fallback for usePortfolio
 ├── lib/api.ts                  typed client — the only place fetch() appears
+│                               (enforced: grep -rn "await fetch(" app lib
+│                               must return nothing outside lib/api.ts)
+├── lib/orderMapping.ts         the only place an intent becomes a TradeRequest
 └── next.config.js              dev proxy /api/* → :8000
 ```
 

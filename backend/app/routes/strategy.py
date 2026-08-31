@@ -11,9 +11,10 @@ import math
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ValidationError, constr
 
+from ..auth import get_current_user, require_csrf
 from ..adapters.options import OptionQuote, normalize_snapshot
 from ..alpaca_client import AlpacaClient, is_configured, parse_occ_symbol
 from ..mock_data import mock_positions, mock_screen_candidates
@@ -56,7 +57,11 @@ async def get_strategy_config() -> dict:
 
 
 @router.put("/strategy/config")
-async def put_strategy_config(body: StrategyConfigModel) -> dict:
+async def put_strategy_config(
+    body: StrategyConfigModel,
+    _user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+) -> dict:
     global _active_config
     candidate = StrategyConfig.from_dict(body.model_dump())
     errors = candidate.validate()

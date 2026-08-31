@@ -67,13 +67,81 @@ def isolated_peak_store(tmp_path, monkeypatch):
 
 @pytest.fixture(scope="module")
 def client():
-
     if not HAS_APP:
         pytest.skip("backend.app.main does not expose a FastAPI app yet (implementation in flight)")
     from fastapi.testclient import TestClient
 
     with TestClient(main_module.app) as c:
+        # Clear login rate limiting so tests don't hit 429 from previous test modules
+        import backend.app.auth as auth_mod
+        auth_mod._login_attempts.clear()
+
+        # Authenticate so tests against protected routes (trade, strategy PUT)
+        # do not 401. Uses the hardcoded demo credentials from backend/app/auth.py.
+        login_resp = c.post("/api/auth/login", json={"username": "ADIT_IT_BOYS", "password": "ADIT_HATERS_99"})
+        assert login_resp.status_code == 200, "demo credentials must work in tests"
+        csrf = login_resp.json()["csrf_token"]
+        cookie = login_resp.headers.get("set-cookie", "")
+
+        # Extract the session ID from the Set-Cookie header and inject it as a
+        # cookie on all subsequent requests. TestClient merges cookies automatically
+        # once set on the client, but we also capture the CSRF token for tests
+        # that need to send it as a header.
+        from http.cookies import SimpleCookie
+        sc = SimpleCookie()
+        sc.load(cookie)
+        session_name = "ao_session"
+        if session_name in sc:
+            c.cookies.set(session_name, sc[session_name].value)
+        c.auth_cookie = cookie.split(";")[0] if cookie else ""
+        c.csrf_token = csrf
+
+        # Wrap methods to auto-inject CSRF header for protected routes
+        # (not for /api/auth/* which manages its own cookies)
+        original_methods = {}
+        for m in ("get", "post", "put", "patch", "delete"):
+            original_methods[m] = getattr(c, m)
+
+        def make_wrapped(m):
+            def wrapped(*args, **kwargs):
+                path = args[0] if args else kwargs.get("url", "")
+                if isinstance(path, str) and path.startswith("/api/auth"):
+                    return original_methods[m](*args, **kwargs)
+                hdrs = dict(kwargs.pop("headers", {}) or {})
+                if csrf:
+                    hdrs["X-CSRF-Token"] = csrf
+                kwargs["headers"] = hdrs
+                return original_methods[m](*args, **kwargs)
+            wrapped.__name__ = f"_auth_wrapped_{m}"
+            return wrapped
+
+        for m in ("get", "post", "put", "patch", "delete"):
+            setattr(c, m, make_wrapped(m))
+
+        # Ensure mock mode for all tests using this client
+        from unittest.mock import patch
+        mock_is_configured = patch("backend.app.alpaca_client.is_configured", return_value=False)
+        mock_is_configured.start()
+        c._mock_is_configured = mock_is_configured
+
         yield c
+
+        # Cleanup
+        mock_is_configured.stop()
+
+
+@pytest.fixture
+def raw_client(main_module):
+    """The TestClient without auth injection — for testing 401 on protected routes."""
+    from fastapi.testclient import TestClient
+    with TestClient(main_module.app) as c:
+        yield c
+
+
+@pytest.fixture
+def auth_headers(client):
+    """Headers carrying the CSRF token for protected requests."""
+    return {"X-CSRF-Token": client.csrf_token}
 
 
 @pytest.fixture(autouse=True)

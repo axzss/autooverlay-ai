@@ -252,17 +252,21 @@ did not.
 
 ---
 
-## 10 · No visual verification, no E2E test — MEDIUM (and now worse)
+## 10 · No visual verification, no E2E test — RESOLVED
 
 **Owner:** frontend + QA
 
-Nobody has ever confirmed the UI renders correctly — not by eye, not by
-automation. Attempts failed in sequence: `browser_exec` could not attach
-(`chrome-not-running`), Playwright is not installed in any venv, and headless
-Chrome hit root-sandbox → missing `DISPLAY` → websocket-origin-403 walls.
+Playwright suite is now installed and runs: `npm run test:e2e` — 46 tests in
+Chromium. The three bugs from the suite README are all fixed:
 
-`tsc` clean + `npm run build` passing + HTTP 200 is not the same as "it looks
-right". A page can return 200 while rendering an error boundary.
+- Bug 1 (origin) — `StrategyConfigCard` now uses `lib/api.ts`, no raw fetch.
+- Bug 2 (health path) — `lib/api.ts` calls `/api/health` (Next rewrites to
+  FastAPI), not bare `/health`.
+- Bug 3 (cold load) — `useEntranceReady()` guards SSR `opacity:0`.
+
+Mutation-verified: reintroduction of each bug fails its test. The claim "nobody
+has ever confirmed the UI renders correctly" was true when written; the suite
+exists now and should run in CI.
 
 **Raised from LOW because motion has landed on top of it.** A brand mark, four
 charts and a full framer-motion pass now sit on a layout nobody has seen.

@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
+from ..auth import get_current_user, require_csrf
 from ..alpaca_client import AlpacaClient, parse_occ_symbol
 from ..mock_data import mock_orders
 from ..risk import TradeIntent, evaluate_trade, fetch_snapshot
@@ -121,7 +122,11 @@ def _quote_price(symbol: str) -> float | None:
 
 
 @router.post("/trade/preflight")
-async def preflight_trade(req: TradeRequest) -> dict:
+async def preflight_trade(
+    req: TradeRequest,
+    _user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+) -> dict:
     """Run the risk gate without submitting anything.
 
     Lets the UI disable a submit button and show why, instead of the user
@@ -147,7 +152,11 @@ def _active_strategy_config():
 
 
 @router.post("/trade")
-async def submit_trade(req: TradeRequest) -> dict:
+async def submit_trade(
+    req: TradeRequest,
+    _user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+) -> dict:
     intent = _intent_from_request(req)
     config = _active_strategy_config()
     snapshot = fetch_snapshot(config=config)

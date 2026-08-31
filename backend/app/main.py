@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from .auth import router as auth_router
 from .routes.council import router as council_router
 from .routes.agent import router as agent_router
 from .routes.portfolio import router as portfolio_router
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 
+app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(portfolio_router, prefix="/api", tags=["portfolio"])
 app.include_router(trade_router, prefix="/api", tags=["trading"])
 app.include_router(strategy_router, prefix="/api", tags=["strategy"])
@@ -68,6 +70,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health() -> dict:
     from .alpaca_client import is_configured
 
