@@ -142,10 +142,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       })
       clearTimeout(tryTimeout)
       if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        const error = new ApiError(
-          `API ${path} responded ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`,
-        )
+        // Read the body defensively. `res.text()` may be absent or may itself
+        // throw (a stubbed/partial Response, a stream already consumed, a body
+        // that never arrives). If that happens the thrown TypeError escapes to
+        // the catch below, is not an ApiError, and gets wrapped as
+        // "unreachable" — reporting a backend that ANSWERED as a dead one.
+        // The status is the diagnostically important part; the body is a bonus.
+        let detail = ''
+        try {
+          const body = typeof res.text === 'function' ? await res.text() : ''
+          if (body) detail = `: ${body.slice(0, 200)}`
+        } catch {
+          /* body unreadable — keep the status, drop the detail */
+        }
+        const error = new ApiError(`API ${path} responded ${res.status}${detail}`)
         if (!isRetryable || attempt === (isRetryable ? 2 : 1) || !RETRYABLE_STATUS.has(res.status)) {
           throw error
         }
@@ -165,12 +175,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         lastError = err
         continue
       }
+      // A typed error from an earlier attempt outranks a generic wrap from this
+      // one: "responded 503" tells the operator the backend is up and failing,
+      // "unreachable" sends them to look at the wrong thing.
+      if (lastError instanceof ApiError) throw lastError
       const wrapped = err instanceof DOMException && err.name === 'AbortError'
         ? new ApiError(`API ${path} timed out`, err)
         : new ApiError(`API ${path} unreachable`, err)
       throw wrapped
     } finally {
-      if (attempt === (isRetryable ? 2 : 1)) clearTimeout(timeout)
+      // The OUTER controller's timer must be cleared on every exit path, not
+      // only on the final attempt. A retryable GET that succeeds on attempt 1
+      // left this timer armed (the old condition `attempt === 2` was false), so
+      // an abort fired up to 15s later against a controller nothing was
+      // listening to — a leaked handle per successful request. Harmless in a
+      // one-shot page, not harmless once F1 polls every 20s.
+      clearTimeout(timeout)
     }
   }
 
