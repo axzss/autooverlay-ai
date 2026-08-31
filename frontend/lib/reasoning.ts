@@ -125,7 +125,15 @@ export function parseReasoning(trace: readonly string[]): ParsedReasoning {
     if (RE_MOOD.test(line)) {
       // Identical for every symbol — it is a market-wide fact. Keep one copy.
       marketMood ??= line
-      current?.raw.push(rawLine)
+      // But keep the LINE somewhere regardless. `current?.raw.push()` alone
+      // silently dropped any mood line that arrived before the first consensus
+      // line (current === null, so the optional call no-ops), and every mood
+      // variant after the first: neither `preamble` nor any group held it. That
+      // broke this module's own contract that no line is ever silently dropped —
+      // and a dropped line is dropped agent output, which is the one thing a
+      // reasoning viewer must never do.
+      if (current) current.raw.push(rawLine)
+      else preamble.push(rawLine)
       continue
     }
 

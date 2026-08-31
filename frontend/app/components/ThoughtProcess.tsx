@@ -243,11 +243,17 @@ export default function ThoughtProcess() {
               </p>
             )}
 
-            {parsed.preamble.map((line, i) => (
-              <p key={i} className="font-mono text-[11px] text-[#94a3b8]">
-                {line}
-              </p>
-            ))}
+            {/* A mood line that arrived before the first symbol block is kept in
+                `preamble` so no agent output is dropped, but it is already shown
+                in the banner above — render it once, not twice. Comparison is on
+                the trimmed text because `preamble` holds raw lines. */}
+            {parsed.preamble
+              .filter((line) => line.trim() !== parsed.marketMood)
+              .map((line, i) => (
+                <p key={i} className="font-mono text-[11px] text-[#94a3b8]">
+                  {line}
+                </p>
+              ))}
 
             {parsed.groups.map((g, i) => (
               <SymbolBlock key={`${g.symbol ?? 'grp'}-${i}`} group={g} index={i} />
