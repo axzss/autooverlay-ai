@@ -20,7 +20,19 @@ the instance.
 | A2 | `overlay_only_drawdown=False` was unsettable — `_cfg_get` rejects bools and returned the default | New `_cfg_flag()` for boolean config; `_cfg_get` left strict for numeric thresholds |
 | A3 | `test_drawdown_breach_halts` passed because its fixture **omitted `market_value`**, taking the opposite branch from production | Fixture now production-shaped; 6 new tests in `test_risk_mitigation.py` |
 | B | Backend passes **current** equity as `peak_equity`, and nothing anywhere produced `consecutive_stop_losses` | Supplied peak treated as a *candidate max*; `_consecutive_stop_losses()` derives the counter from exit decisions, with a post-exit kill-switch recheck |
+| B1 | `8fc3928` added an `equity` override to `_build_portfolio_state`, so both sides of the ratio became `account["equity"]` again — the mock cycle stopped halting and finding B was live for a second time | Caller may **raise** the mark, never lower it, and never supply it outright. Persistent `agent/state/peak.py` owns the mark; a caller-supplied `peak_equity` is folded in as an *observation* |
+| B2 | Execution gate derived its peak from `max(equity, last_equity)` — a **two-day window**. Same book, opposite verdict depending on which calendar day the peak fell on: `equity 55000/last 55100 → halted=False`, `equity 55000/last 200000 → halted=True` | `backend/app/risk/state._peak_marks()` reads the persistent store, keyed per account; degrades to the two-day window only when the store is unreachable, and labels it `source="absent"` |
+| B3 | `overlay_peak_equity` was never supplied by any caller — `grep` found it only in agent-layer tests, so the overlay basis was unreachable in production and every evaluation silently fell back to NAV | Gate computes overlay collateral via the shared `_is_short_option` rule and observes it into the store |
+| B4 | Gate discarded `notes` and `drawdown_basis`, the two fields added specifically to make a NAV fallback visible | Notes ride along with breaches as `note: …` entries in `halt_reasons` |
 | C | `with ThreadPoolExecutor(...)` → `shutdown(wait=True)` on exit, so the timeout fired only **after** the worker it was meant to abandon finished. Measured 60.4s against a 1.0s budget | One executor per batch, `as_completed(timeout=budget)`, `shutdown(wait=False)`, `except Exception` narrowed |
+
+**The pattern worth naming.** A, B, B1 and B2 are four routes into one defect:
+*the drawdown denominator was derived from the numerator.* Each fix closed one
+route and the next commit found another. What closed the class was moving the
+mark out of caller control entirely — a caller can raise it, never lower it,
+never supply it. Regression coverage: `agent/tests/test_peak_store.py` (21) and
+`backend/tests/test_risk_state_peak.py` (11).
+
 
 Live Layer 1 status before W0: drawdown **dead twice over**, stop-loss counter
 **never fed**, single-day loss the only working trigger. Verified after:

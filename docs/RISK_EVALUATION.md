@@ -110,13 +110,20 @@ chains (W2) and a real IV percentile series (W8). Neither is built, so **the
 | 3 | Hedge-fund council — `agent/council/` | **BUILT** |
 | 4 | Execution gate — `backend/app/risk/`, `backend/app/store/` | **BUILT** (backend) |
 
+
 **Layer 1.** Evaluated first in `run_daily_cycle`, before any other step, and
 re-checked at step 5b after exit evaluation — the stop-loss count is a *product*
 of exit evaluation, so checking only at step 1 let a cycle screen new entries
 while holding its own evidence of trouble. Returns `notes` and `drawdown_basis`
 (`"nav"` or `"overlay"`) so a fallback is visible.
 
-**Layer 2.** High-water marks persist. The event ledger does not exist.
+**Layer 2.** High-water marks persist, in **both** paths — `run_daily_cycle` and
+the execution gate read the same store, so a halt cannot depend on which entry
+point observed the account. Before this, the gate used `max(equity,
+last_equity)`: a two-day window that gave the same book opposite verdicts
+depending on which calendar day its peak fell on. The `cycle_run` / `directive` /
+`exit_event` event ledger still does not exist.
+
 
 **Layer 3.** Six personas, Graham's seven Ch.14 defensive tests, Mr. Market
 regime classification, tier-policy handoff. Monte Carlo is **not** in this path.
@@ -152,11 +159,12 @@ Stated plainly, because a risk document listing only mitigations is marketing.
 ## 4. How to check this document against the code
 
 ```bash
-pytest agent/tests backend/tests -q          # 575 passed, 1 skipped
+pytest agent/tests backend/tests -q          # 586 passed, 1 skipped
 python3 backend/tests/repro_live_defects.py  # 7/7
 ls agent/state/ docs/.cache/                 # what persistence exists
 git grep -l monte_carlo -- agent backend     # what actually imports it
 ```
+
 
 If a claim here cannot be reproduced by one of those commands, the claim is
 wrong and should be corrected rather than defended.
