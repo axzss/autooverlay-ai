@@ -46,8 +46,28 @@ except Exception:  # pragma: no cover - implementation not landed yet
     HAS_APP = False
 
 
+@pytest.fixture(autouse=True)
+def isolated_peak_store(tmp_path, monkeypatch):
+    """Give every backend test its own kill-switch high-water-mark store.
+
+    ``agent/state/peak.py`` persists NAV and overlay peaks across cycles. Without
+    isolation the first request to run would seed a mark that every later test
+    inherits, and a peak left behind by a demo (say 100k against the 47k mock
+    account) would halt the mock cycle — making the suite's result depend on run
+    history rather than on the code.
+    """
+    from agent.state import PEAK_PATH_ENV
+    from agent.council import daily_cycle as dc
+
+    monkeypatch.setenv(PEAK_PATH_ENV, str(tmp_path / "peak_equity.json"))
+    monkeypatch.setattr(dc, "_PEAK_STORE", None, raising=False)
+    yield
+    monkeypatch.setattr(dc, "_PEAK_STORE", None, raising=False)
+
+
 @pytest.fixture(scope="module")
 def client():
+
     if not HAS_APP:
         pytest.skip("backend.app.main does not expose a FastAPI app yet (implementation in flight)")
     from fastapi.testclient import TestClient

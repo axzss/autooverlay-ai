@@ -1,13 +1,38 @@
-"""Monte Carlo Portfolio & Pre-Trade Risk Simulation Engine (v2 Institutional).
+"""Monte Carlo portfolio stress simulation — STANDALONE, NOT WIRED IN.
 
-Features:
-- Geometric Brownian Motion (GBM) with Jump Diffusion (Merton Jump Model for black swan events)
-- Dynamic Regime Switching (Low Vol <-> High Vol Panic regimes)
-- Sortino Ratio (downside risk-adjusted metric) & Value at Risk (VaR / CVaR)
-- PTRM Kill-Switch Stress Testing across 1,000 multi-day portfolio paths
+Read this before quoting any number this module produces.
 
-Pure Python (stdlib only) — zero dependencies, zero token cost, T440 safe.
+WHAT IT IS
+    A stdlib-only Monte Carlo over ACCOUNT EQUITY: geometric Brownian motion with
+    Merton jump diffusion, a crude two-state volatility regime, and the real
+    ``evaluate_kill_switch`` applied on every simulated day. Useful for asking
+    "how often would the kill-switch fire under these dynamics".
+
+WHAT IT IS NOT
+    1. Not part of screening. Nothing imports it — ``git grep monte_carlo --
+       agent backend`` returns this file and its test. It does not influence any
+       directive, and it must not be described as "integrated into strategy
+       screening" until it is.
+    2. Not a model of options. Equity follows a single price process; there are
+       no strikes, deltas, gamma, assignment or per-contract theta. Premium
+       enters as a flat ``overlay_yield_pct / 252`` credit. It therefore CANNOT
+       evaluate the 60% take-profit / 200% stop-loss asymmetry, whose
+       justification is the implied-minus-realised volatility premium — there is
+       no implied volatility anywhere in here.
+    3. Not calibrated. With defaults it halts ~87% of paths within 30 days
+       (~755 single-day-loss breaches per 1000 paths). A live system halting 87%
+       of the time would never trade. Either the volatility inputs or the 2%
+       daily kill threshold is wrong; this is unresolved and the figure should
+       not be presented as a system property.
+    4. Not exercising the whole kill-switch. ``consecutive_stop_losses`` is fixed
+       at 0 below, so that trigger never fires on any path.
+
+Honest use: a sensitivity tool for the kill-switch thresholds. Dishonest use:
+evidence that the strategy parameters are sound.
+
+See ``docs/RISK_EVALUATION.md`` §1C and ``docs/AI-ENGINEER.md`` §1C.
 """
+
 
 from __future__ import annotations
 
@@ -102,13 +127,18 @@ def run_monte_carlo_simulation(
             if dd < max_dd:
                 max_dd = dd
 
-            # Evaluate Pre-Trade Risk Manager Kill-Switch
+            # Evaluate the real kill-switch on this simulated day.
+            # NOTE: consecutive_stop_losses is fixed at 0, so that trigger is
+            # never exercised here. The simulation has no per-contract exits, so
+            # there is nothing to derive a stop-loss run from — a limitation, not
+            # a choice. See the module docstring.
             state = {
                 "equity": equity,
                 "peak_equity": peak_equity,
                 "prev_equity": prev_equity,
                 "consecutive_stop_losses": 0,
             }
+
             res = evaluate_kill_switch(state)
             if res["halted"]:
                 halted = True

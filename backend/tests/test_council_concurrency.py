@@ -250,14 +250,50 @@ def test_the_assess_endpoint_still_returns_assessments(client):
     assert all(a["verdicts"] for a in body["assessments"])
 
 
-def test_the_cycle_endpoint_still_halts_on_the_bundled_mock_portfolio(client):
-    """The mock account is down 13% from peak, so the kill-switch fires.
+def test_the_cycle_endpoint_does_not_halt_a_healthy_mock_portfolio(client):
+    """REWRITTEN — the original premise was arithmetically false.
 
-    Verified identical on 65f1e41, so this is the pre-existing behaviour, not a
-    regression from the threading change. The halt short-circuits before
-    `step("kill_switch")` is recorded, which is why `steps_run` is empty.
+    It asserted "the mock account is down 13% from peak, so the kill-switch
+    fires". The mock account is not down at all:
+
+        equity      47821.32
+        last_equity 47687.12   -> +0.28%, the portfolio is UP
+
+    The -13.21% came from comparing two inconsistent equity sources. The cycle
+    summed ``mock_positions()`` + cash = 41506.28, while ``peak_equity`` was
+    ``account["equity"]`` = 47821.32. ``mock_positions()`` returns 28962.50 of
+    holdings but the account reports ``long_market_value`` 35277.54 — the
+    fixture is short 6315.04 of positions. That gap, not a market move, was the
+    "drawdown", and this test was pinning it in place.
+
+    The kill-switch now reads its high-water mark from the persistent PeakStore
+    rather than from a caller-supplied field, so a flat portfolio no longer
+    manufactures a drawdown. A halt on the bundled healthy fixture would be a
+    FALSE POSITIVE, and a risk control that cries wolf on a healthy book gets
+    switched off by whoever is on call.
+
+    Real drawdown halts are covered in agent/tests/test_daily_cycle.py and
+    agent/tests/test_peak_store.py.
     """
     body = client.post("/api/council/cycle", json={}).json()
+    assert body["halted"] is False
+    assert body["kill_switch"]["reasons"] == []
+    assert body["steps_run"] == [
+        "kill_switch", "snapshots", "mr_market", "council_assessments",
+        "exits", "entry_screening", "directives",
+    ]
+
+
+def test_the_cycle_endpoint_halts_when_the_peak_is_genuinely_higher(client):
+    """The halt path over the same endpoint, with an honest peak.
+
+    ``peak_equity`` is folded into the PeakStore as an observation, so a caller
+    can raise the high-water mark but never lower it. 100k against the mock
+    account's 47821.32 is a real -52% drawdown.
+    """
+    body = client.post("/api/council/cycle", json={
+        "portfolio_state_overrides": {"peak_equity": 100000.0},
+    }).json()
     assert body["halted"] is True
     assert any("drawdown" in r for r in body["halt_reasons"])
     assert body["steps_run"] == []
@@ -265,9 +301,9 @@ def test_the_cycle_endpoint_still_halts_on_the_bundled_mock_portfolio(client):
 
 
 def test_the_cycle_endpoint_runs_every_step_when_not_halted(client):
-    """With the drawdown overridden away, all seven steps execute."""
+    """All seven steps execute on a portfolio with no breach."""
     body = client.post("/api/council/cycle", json={
-        "portfolio_state_overrides": {"peak_equity": 41506.28, "prev_equity": 41506.28},
+        "portfolio_state_overrides": {"prev_equity": 41506.28},
     }).json()
     assert body["halted"] is False
     assert body["steps_run"] == [
@@ -275,6 +311,7 @@ def test_the_cycle_endpoint_runs_every_step_when_not_halted(client):
         "exits", "entry_screening", "directives",
     ]
     assert body["assessments"]
+
 
 
 def test_a_broker_failure_in_the_cycle_is_still_a_502(client, monkeypatch):

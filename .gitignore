@@ -15,6 +15,13 @@ coverage/
 .idea/
 *.tsbuildinfo
 
+# Playwright E2E artifacts — traces, screenshots and HTML reports are
+# regenerated on every run and are large.
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+
 # Copyrighted book text — local analysis only, never commit
 docs/intelligent_investor.txt
 docs/intelligent_investor.pdf
@@ -22,3 +29,8 @@ docs/intelligent_investor.pdf
 # Backend runtime state: order ledger, audit trail, config history.
 # Regenerated at runtime and account-specific — never committed.
 backend/.cache/
+
+# Agent runtime state: kill-switch high-water marks, fundamentals cache.
+# Machine-local and account-specific; a shared peak mark is meaningless.
+docs/.cache/
+

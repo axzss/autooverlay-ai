@@ -81,38 +81,119 @@ def _position_value(p: dict) -> float:
 
 def _build_portfolio_state(positions: List[dict], cash: float,
                            overrides: Optional[dict]) -> dict:
-    """Derive kill-switch inputs; explicit overrides always win.
+    """Derive kill-switch inputs from one authoritative equity figure.
 
-    ``peak_equity`` is a HIGH-WATER MARK, so a caller-supplied value is treated
-    as a *candidate* max and never allowed to lower the mark below current
-    equity. The live backend passes the account's CURRENT equity here (finding
-    B), which made peak == equity and the drawdown ratio always 0. Taking the
-    max is what makes that harmless from inside this layer.
+    Three separate incidents came from equity and its high-water mark being
+    sourced independently:
 
-    An explicit ``equity`` override is used when provided so the cycle can
-    report the full account equity even when the passed positions list is
-    filtered for screening purposes.
+    - finding A: overlay equity compared against itself, drawdown always 0.00%
+    - finding B: the backend passed CURRENT equity as ``peak_equity``
+    - 8fc3928: an ``equity`` override was added, so both sides became
+      ``account["equity"]`` again and the mock portfolio stopped halting
+
+    The rule that removes the whole class: **a caller may supply the current
+    equity, but never the peak.** The peak comes from :class:`PeakStore`, which
+    remembers maxima across cycles. A supplied ``peak_equity`` is accepted only
+    as an additional observation folded into the store, never as the mark
+    itself.
+
+    ``peak_source`` is added to the returned state so a demo can show where the
+    mark came from: ``store``, ``seeded`` (first ever cycle) or ``absent``.
     """
     ov = overrides or {}
+
+    # 1. One equity figure. An explicit override wins because the caller may
+    #    hold the full account NAV while `positions` is filtered for screening.
     equity = ov.get("equity")
     if equity is None:
         equity = sum(_position_value(p) for p in positions) + float(cash or 0)
     else:
-        equity = float(equity)
-    state = {
+        try:
+            equity = float(equity)
+        except (TypeError, ValueError):
+            equity = sum(_position_value(p) for p in positions) + float(cash or 0)
+
+    overlay_collateral = _overlay_collateral_of(positions)
+
+    # 2. Fold any caller-supplied peaks in as OBSERVATIONS, then take the mark
+    #    back from the store. A caller can raise the mark, never lower it.
+    store = _peak_store()
+    nav_candidates = [equity, _as_float(ov.get("peak_equity"))]
+    overlay_candidates = [overlay_collateral or None,
+                          _as_float(ov.get("overlay_peak_equity"))]
+    record = store.observe(
+        max((v for v in nav_candidates if v is not None), default=None),
+        max((v for v in overlay_candidates if v is not None), default=None),
+    )
+
+    nav_peak = record.nav_peak if record.nav_peak is not None else equity
+    state: Dict[str, Any] = {
         "equity": equity,
-        "peak_equity": ov.get("peak_equity"),
+        # A peak below current equity is not a peak.
+        "peak_equity": max(nav_peak, equity),
         "prev_equity": ov.get("prev_equity"),
         "consecutive_stop_losses": ov.get("consecutive_stop_losses"),
-        "overlay_peak_equity": ov.get("overlay_peak_equity"),
+        "overlay_peak_equity": record.overlay_peak,
+        "peak_source": record.source,
     }
-    # A peak below current equity is not a peak.
-    try:
-        supplied_peak = float(state["peak_equity"]) if state["peak_equity"] is not None else None
-    except (TypeError, ValueError):
-        supplied_peak = None
-    state["peak_equity"] = max(supplied_peak, equity) if supplied_peak is not None else equity
     return {k: v for k, v in state.items() if v is not None}
+
+
+def _as_float(value) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    import math
+    return result if math.isfinite(result) else None
+
+
+
+def _overlay_collateral_of(positions: List[dict]) -> float:
+    """Overlay collateral in a position list, using the shared short-option rule.
+
+    Imported from ``risk_mitigation`` rather than reimplemented: two definitions
+    of "short option" in one repo drift, and this one feeds a safety control.
+    """
+    try:
+        from .risk_mitigation import _overlay_collateral
+        return _overlay_collateral(positions or [])
+    except Exception:
+        return 0.0
+
+
+def _peak_store():
+    """Return the process-wide PeakStore, or a no-op stub if unavailable."""
+    global _PEAK_STORE
+    if _PEAK_STORE is None:
+        try:
+            from ..state import PeakStore
+            _PEAK_STORE = PeakStore()
+        except Exception:
+            _PEAK_STORE = _NullPeakStore()
+    return _PEAK_STORE
+
+
+class _NullPeakStore:
+    """Fallback when the state package cannot be imported.
+
+    Reports ``tracked=False`` / ``source="absent"`` so the kill-switch treats
+    the peak as unknown and falls back to a NAV comparison with a note, rather
+    than silently reading 0% drawdown.
+    """
+
+    def observe(self, equity=None, overlay_collateral=None, account_id="default"):
+        from ..state.peak import PeakRecord  # pragma: no cover - import guard
+        return PeakRecord(equity, overlay_collateral, False, "absent")
+
+    def read(self, account_id="default"):
+        return self.observe()
+
+
+_PEAK_STORE = None
+
 
 
 def _consecutive_stop_losses(exit_decisions: List[dict]) -> int:

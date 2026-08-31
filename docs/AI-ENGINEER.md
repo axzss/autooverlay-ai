@@ -40,17 +40,23 @@ agent/
 ### A. Ephemeral State Storage & Reset Vulnerability
 - **Criticism:** Storing consecutive stop-loss counters and high-water marks in transient memory or `/tmp` creates severe vulnerabilities upon process restart.
 - **System Impact:** Reboots wipe the `consecutive_stop_losses` counter back to `0` and reset `peak_equity` to current equity, effectively blinding multi-day drawdown evaluation.
-- **Risk Mitigation:** SQLite WAL persistent state store (`docs/.cache/agent_state.db`) records `cycle_run`, `directive`, `exit_event`, and `peak_equity` across session restarts.
+- **Mitigation — BUILT:** `agent/state/peak.py` persists NAV and overlay high-water marks across cycles and restarts (`docs/.cache/peak_equity.json`, atomic write, `/tmp` fallback, gitignored). A caller may raise the mark and never lower it, so the drawdown check no longer depends on a value the caller supplies. Reads report `tracked` / `source` — an absent mark is `"absent"`, never a silent 0% drawdown. 21 tests in `agent/tests/test_peak_store.py`.
+- **Still open:** the wider ledger (`cycle_run`, `directive`, `exit_event`) is **not built**. Without `exit_event`, `consecutive_stop_losses` is still within-cycle only — see `KNOWN-ISSUES.md` #11. The fundamentals cache is still in `/tmp` — #1.
 
 ### B. Unresolved Contract Executions & Market Order Drag
 - **Criticism:** Abstract strategy directives outputting policy parameters (`delta_min/max`, `strategy_allowed`) without concrete OCC option symbols cause backend order handlers to fall back to market orders.
 - **System Impact:** Market orders on options cross the full bid-ask spread, destroying **3–10% of total premium** instantaneously on entry.
-- **Risk Mitigation:** Strict OCC symbol builder (`resolve_option_contract()`) maps DTE/Delta policy guidelines to concrete strikes and locks execution strictly to **Mid-Price Limit Orders** ($\text{Limit} = \frac{\text{Bid} + \text{Ask}}{2}$). Market orders are explicitly blocked for options.
+- **Mitigation — BACKEND-OWNED:** `_pick_option_contract` in `backend/app/routes/agent.py` resolves the contract from the live option chain, and `backend/app/risk/` gates every order before the broker is contacted. Not an agent-layer deliverable; see `KNOWN-ISSUES.md` #2 for the residual gap in mock mode.
 
 ### C. Asymmetric Expectancy Realities (60% Profit / 200% Stop-Loss)
 - **Criticism:** The 60% take-profit / 200% stop-loss asymmetry means 1 losing trade erases 3.3 winning trades.
 - **System Impact:** If win rates drop below 77%, net expected return turns negative.
-- **Risk Mitigation:** Monte Carlo VaR simulation engine (`monte_carlo.py`) integrates Merton Jump Diffusion to stress-test 1,000 multi-day portfolio paths under non-Gaussian tail-risk shocks, enforcing portfolio-level Net Delta ($\le 0.30 \times \text{NAV}$) and Vega ($\le 0.15 \times \text{NAV}$) caps.
+- **Partial mitigation — `agent/monte_carlo.py` exists but is NOT wired in.** Nothing imports it: `git grep monte_carlo -- agent backend` returns only the module and its own test. It is a standalone stress tool, not part of screening, and the four claims below must be read before any number from it is quoted:
+  1. It models **account equity as a single GBM/jump process**. There are no strikes, deltas, assignment or per-contract theta in it — only a flat `overlay_yield/252` credit. It therefore **cannot** evaluate the 60/200 asymmetry, whose justification is the implied-minus-realised volatility premium.
+  2. `consecutive_stop_losses` is hardcoded to `0`, so the third kill-switch trigger is never exercised across any path.
+  3. Its default parameters produce a **87.3% kill-switch halt rate over 30 days** (873/1000 paths, 755 single-day-loss breaches). Either the calibration or the 2% daily threshold is wrong; a live system halting 87% of the time would never trade. Unresolved.
+  4. Portfolio **Net Delta ≤ 0.30 × NAV and Vega ≤ 0.15 × NAV caps do not exist.** `grep` finds no such fields in `config.py` or the strategies. They are W3 on the roadmap — planned, not enforced.
+
 
 ---
 
@@ -88,11 +94,34 @@ overlay_only_drawdown:        bool  = True
 
 ## 3. Four-Layer Risk Architecture
 
-1. **Layer 1: Pre-Trade Kill-Switch (`risk_mitigation.py`)**
-   - Checked *first* before any cycle step. Halts new position generation immediately if drawdown, single-day loss, or stop-loss limits are breached.
-2. **Layer 2: Persistent State Engine (`agent/state/`)**
-   - SQLite WAL state store tracking cross-cycle events and high-water marks.
-3. **Layer 3: Hedge Fund Council & Fallback Engine (`agent/council/`)**
-   - Six investor personas, Benjamin Graham Chapter 14 defensive checks, Mr. Market regime classification, and Monte Carlo VaR risk assessment.
-4. **Layer 4: Execution Contract Resolver (`order_executor.py`)**
-   - Exact OCC symbol parsing and mandatory mid-price limit order guard rails.
+Marked BUILT / PARTIAL / PLANNED, because a risk document that describes intent
+as though it were implementation is worse than no document.
+
+1. **Layer 1: Pre-Trade Kill-Switch (`risk_mitigation.py`) — BUILT**
+   - Checked *first* before any cycle step, and re-checked at step 5b after exit
+     evaluation. Halts on NAV or overlay drawdown, single-day loss, or
+     consecutive stop-losses. Returns `notes` and `drawdown_basis` so a NAV
+     fallback is visible rather than silent.
+2. **Layer 2: Persistent State (`agent/state/`) — PARTIAL**
+   - `peak.py` persists NAV and overlay high-water marks across restarts. The
+     `cycle_run` / `directive` / `exit_event` ledger is **not built**, so
+     `consecutive_stop_losses` does not yet accumulate across cycles.
+3. **Layer 3: Hedge Fund Council (`agent/council/`) — BUILT**
+   - Six investor personas, Graham Ch.14 defensive checks, Mr. Market regime
+     classification, tier policy handoff. Monte Carlo is **not** part of this
+     path — see §1C.
+4. **Layer 4: Execution Contract Resolver — BACKEND-OWNED, BUILT**
+   - `backend/app/routes/agent.py` resolves OCC contracts; `backend/app/risk/`
+     runs nine pre-trade checks and `backend/app/store/` records every attempt.
+     `order_executor.py` in this layer constructs orders but never submits them.
+
+**Not built, on the roadmap:** portfolio Greeks caps (W3), behavioural replay
+(W2), IV rank (W8), signed council handoff (W6).
+
+---
+
+For the module-by-module reference — `strategies/`, `decision_engine.py`,
+`exit_manager.py`, `portfolio_analyst.py`, `council/daily_cycle.py`,
+`council/handoff.py`, the verification scripts and the test map — see
+[`AI-ENGINEER-REFERENCE.md`](AI-ENGINEER-REFERENCE.md).
+
