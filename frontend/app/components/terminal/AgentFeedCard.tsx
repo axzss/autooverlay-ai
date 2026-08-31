@@ -8,6 +8,7 @@ import {
   type FeedEntry,
   type TradeResponse,
 } from '../../../lib/api'
+import { feedEntryToTradeRequest } from '../../../lib/orderMapping'
 
 type ExecuteState =
   | { phase: 'idle' }
@@ -40,22 +41,28 @@ export default function AgentFeedCard({ entry }: { entry: FeedEntry }) {
   const canExecute = entry.rawAction === 'INITIATE_POSITION'
 
   async function handleExecute() {
+    // Built by lib/orderMapping, which refuses to fall back to the underlying
+    // ticker. The old `entry.optionSymbol ?? entry.symbol` sold the SHARES when
+    // no contract was resolved — and per KNOWN-ISSUES #2 that is the normal case.
+    const { request, blocked } = feedEntryToTradeRequest(entry)
+    if (!request) {
+      setExec({
+        phase: 'done',
+        ok: false,
+        message: blocked ?? 'Could not build a trade request for this candidate.',
+      })
+      return
+    }
     setExec({ phase: 'submitting' })
     try {
-      const res: TradeResponse = await api.placeTrade({
-        symbol: entry.optionSymbol ?? entry.symbol,
-        qty: entry.contracts,
-        side: 'sell',
-        type: 'market',
-        time_in_force: 'day',
-      })
+      const res: TradeResponse = await api.placeTrade(request)
       setExec({
         phase: 'done',
         ok: true,
         message:
           res.mode === 'mock' || res.submitted === false
             ? `Mock mode — order validated but not submitted (${String(res.reason ?? 'backend not configured')})`
-            : `Order submitted: ${res.order?.symbol ?? entry.symbol} x${res.order?.qty ?? entry.contracts} — status ${res.order?.status ?? 'accepted'}`,
+            : `Order submitted: ${res.order?.symbol ?? request.symbol} x${res.order?.qty ?? entry.contracts} — status ${res.order?.status ?? 'accepted'}`,
       })
     } catch (err) {
       setExec({
@@ -88,12 +95,20 @@ export default function AgentFeedCard({ entry }: { entry: FeedEntry }) {
         <div className="ml-auto">
           {!canExecute ? null : exec.phase === 'confirm' ? (
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-[#94a3b8]">
-                Sell to open {entry.contracts} {entry.optionSymbol ?? entry.symbol}?
-              </span>
+              {entry.optionSymbol ? (
+                <span className="text-[11px] text-[#94a3b8]">
+                  Sell to open {entry.contracts} {entry.optionSymbol} at{' '}
+                  <span className="font-semibold text-[#f87171]">MARKET</span>?
+                </span>
+              ) : (
+                <span className="text-[11px] text-[#f87171]">
+                  No contract resolved for {entry.symbol} — cannot submit.
+                </span>
+              )}
               <button
                 onClick={handleExecute}
-                className="inline-flex items-center gap-1 rounded border border-[#22c55e]/60 bg-[#052e16] px-2 py-1 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10"
+                disabled={!entry.optionSymbol}
+                className="inline-flex items-center gap-1 rounded border border-[#22c55e]/60 bg-[#052e16] px-2 py-1 text-xs font-medium text-[#22c55e] hover:bg-[#22c55e]/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Play className="h-3 w-3" />
                 Confirm

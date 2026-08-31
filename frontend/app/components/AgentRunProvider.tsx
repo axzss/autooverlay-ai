@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { api, type AgentRunResponse, type OrderIntent } from '../../lib/api'
+import { intentToTradeRequest } from '../../lib/orderMapping'
 
 /**
  * Shares one agent run across the dashboard so the control card and the
@@ -55,15 +56,18 @@ export default function AgentRunProvider({ children }: { children: ReactNode }) 
 
   const approveOrder = useCallback(async (intent: OrderIntent) => {
     setLastApproval(null)
+    // The request is built by lib/orderMapping, which refuses to substitute the
+    // underlying ticker when no option contract is resolved. This used to send
+    // `symbol: intent.symbol`, so approving a covered call submitted a sell of
+    // the underlying SHARES — the wrong instrument, and the collateral the
+    // position depended on.
+    const { request, blocked } = intentToTradeRequest(intent)
+    if (!request) {
+      setLastApproval({ error: blocked ?? 'Order intent could not be mapped to a trade request.' })
+      return
+    }
     try {
-      const res = await api.placeTrade({
-        symbol: intent.symbol,
-        qty: intent.contracts,
-        side: intent.side === 'sell' ? 'sell' : 'buy',
-        type: intent.type === 'limit' ? 'limit' : 'market',
-        time_in_force: intent.time_in_force || 'day',
-        limit_price: intent.limit_price ?? null,
-      })
+      const res = await api.placeTrade(request)
       setLastApproval({ status: res.status || 'submitted' })
     } catch (err) {
       setLastApproval({ error: err instanceof Error ? err.message : 'Approval failed' })
