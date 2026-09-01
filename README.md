@@ -89,15 +89,17 @@ Note: the AI router is an integration point for agent features; the web app stil
 
 ### Fallback LLM
 
-If the primary AI router is unavailable, the backend can fall back to another OpenAI-compatible provider.
+If the primary AI router returns a model-not-found error or is unavailable, the backend can fall back to another OpenAI-compatible provider.
 
 Configure in `backend/.env`:
 
 ```bash
-LLM_FALLBACK_BASE_URL=https://20a324a2313f.nofx.one
+LLM_FALLBACK_BASE_URL=https://openrouter.ai/api/v1
 LLM_FALLBACK_API_KEY=your_fallback_llm_api_key
-LLM_FALLBACK_MODEL=z-ai/glm-5.3-free
+LLM_FALLBACK_MODEL=openai/gpt-4o-mini
 ```
+
+Note: the fallback provider is used when the primary endpoint rejects the configured model or is unreachable.
 
 ```bash
 # Tests — run both suites (agent + backend)
