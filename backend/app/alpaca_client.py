@@ -30,7 +30,12 @@ class AlpacaAPIError(RuntimeError):
 
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
-    return value.strip() if value else default
+    if not value:
+        return default
+    val = value.strip()
+    if val.lower().startswith("your_") or val.lower() == "none":
+        return default
+    return val
 
 
 def get_key() -> str | None:

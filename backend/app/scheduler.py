@@ -252,20 +252,23 @@ class BotScheduler:
             error_msg = None
 
             from .routes.council import CouncilCycleRequest, council_cycle
-            from .routes.agent import _order_intents, _active_strategy_config
+            from .routes.agent import _order_intents
+            from .routes.strategy import _active_strategy_config
 
             # 1. Run the daily council cycle
             cycle_req = CouncilCycleRequest()
-            # Run async council_cycle in event loop or sync
+            # Run async council_cycle safely whether in a running event loop thread or worker thread
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # Running in existing event loop
-                    fut = asyncio.run_coroutine_threadsafe(council_cycle(cycle_req), loop)
-                    cycle = fut.result(timeout=60.0)
-                else:
-                    cycle = loop.run_until_complete(council_cycle(cycle_req))
+                loop = asyncio.get_running_loop()
             except RuntimeError:
+                loop = None
+
+            if loop is not None and loop.is_running():
+                import concurrent.futures
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    cycle = pool.submit(asyncio.run, council_cycle(cycle_req)).result(timeout=60.0)
+            else:
                 cycle = asyncio.run(council_cycle(cycle_req))
 
             halted = bool(cycle.get("halted", False))
