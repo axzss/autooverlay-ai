@@ -11,9 +11,63 @@ npx tsc -p tsconfig.json --noEmit   # type check
 npm run build                       # 11/11 pages incl. /icon and /opengraph-image
 ```
 
+```bash
+cd frontend
+npx playwright test --reporter=list  # E2E tests (requires both dev servers running)
+```
+
 **No test touches the network.** Fundamentals tests use monkeypatched fetchers,
 Alpaca tests use mocked clients, and screening tests force mock mode via an
 autouse fixture.
+
+## E2E Test Suite (Playwright)
+
+The frontend includes a full E2E regression suite covering the three critical
+bugs (BUG 1: same-origin requests, BUG 2: health check via /api rewrite, BUG 3:
+cold-load visibility) plus auth gates, console hygiene, asset delivery, and
+navigation tests.
+
+**Prerequisites (both must be running):**
+```bash
+# Terminal 1: Backend
+cd backend && PYTHONPATH=.. /root/.venvs/qa/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Frontend (custom Express proxy server)
+cd frontend && npm run dev
+```
+
+The frontend dev server (`frontend/server.js`) proxies `/api/*` →
+`http://127.0.0.1:8000` with `pathRewrite: { '^/api': '/api' }`, fixing the
+Next.js 14 `duplex` POST body bug.
+
+```bash
+cd frontend && npx playwright test --reporter=list
+# Expected: 57 tests pass (auth-gates, bug1/2/3, navigation, console-hygiene, agent-run)
+```
+
+**Test structure:**
+| File | Tests | Purpose |
+|------|-------|---------|
+| `bug1-api-origin.spec.ts` | 6 | BUG 1 regression — no cross-origin requests to :8000 |
+| `bug2-health-endpoint.spec.ts` | 3 | BUG 2 regression — health check via /api/health |
+| `bug3-cold-load-visibility.spec.ts` | 5 | BUG 3A regression — cold load paints content |
+| `auth-gates.spec.ts` | 12 | Login, logout, protected pages, CSRF, rate limiting, sidebar auth |
+| `navigation.spec.ts` | 1 | Desktop sidebar active marker follows route |
+| `console-hygiene.spec.ts` | 10 | No console errors on public/protected pages |
+| `agent-run.spec.ts` | 2 | Agent run flow: reasoning panel, line length limit |
+| `asset-delivery.spec.ts` | 5 | All pages load their JS/CSS chunks (no 4xx/5xx on _next/*) |
+
+**Known test quirks (these are infrastructure, not app bugs):**
+- `workers: 1`, `fullyParallel: false` — sequential execution required because the
+  backend's in-process login rate limiter (5/min/IP) is shared across tests.
+- `domcontentloaded` not `networkidle` — HMR websocket hangs `networkidle`.
+- Auth helper (`authenticateDemoUser`) uses `page.evaluate` → `fetch()` to
+  bypass Next.js proxy internals and avoid the `duplex` error.
+- Hydration gate (`waitForDashboardHydration`) waits for AuthProvider to
+  resolve loading state and CSRF token sync before clicking "Run Agent Now".
+- Sidebar tests wait for `aside a.sidebar-nav-item` to appear (loading skeleton
+  resolves after AuthProvider.checkAuth completes).
+- Rate-limiting test runs LAST with 65s wait to let the 60s window reset.
 
 ---
 

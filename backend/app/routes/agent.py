@@ -6,11 +6,12 @@ import math
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from ..adapters.options import normalize_snapshot, parse_occ
 from ..alpaca_client import AlpacaAPIError, AlpacaClient, is_configured
+from ..auth import get_current_user, require_csrf
 from .council import CouncilCycleRequest, council_cycle
 
 router = APIRouter()
@@ -157,7 +158,11 @@ class AgentRunRequest(BaseModel):
 
 
 @router.post("/agent/run")
-async def agent_run(req: AgentRunRequest) -> dict:
+async def agent_run(
+    req: AgentRunRequest,
+    _user: dict = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+) -> dict:
     """Run analysis and return recommendations without submitting orders."""
     cycle = await council_cycle(CouncilCycleRequest(
         candidates=req.candidates,

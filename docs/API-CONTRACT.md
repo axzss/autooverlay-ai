@@ -43,6 +43,11 @@ order.
 The only route not under `/api`. Use it to decide whether the UI should show a
 "mock mode" badge.
 
+**Dev proxy note:** The frontend's custom Express server (`frontend/server.js`)
+proxies `/api/health` → `http://127.0.0.1:8000/health` with
+`pathRewrite: { '^/api': '/api' }`, so the backend receives `/api/health` and
+returns 200.
+
 ---
 
 ## `GET /api/portfolio`

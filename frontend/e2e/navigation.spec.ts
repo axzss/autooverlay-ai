@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { PAGES } from './helpers'
+import { PAGES, authenticateDemoUser } from './helpers'
 
 /**
  * Sidebar navigation: clicking each of the five links must change the URL and
@@ -11,9 +11,16 @@ import { PAGES } from './helpers'
  */
 test.describe('desktop sidebar navigation', () => {
   test('all five links navigate and the active marker follows', async ({ page }) => {
-    await page.goto('/dashboard')
+    await authenticateDemoUser(page)
+    // authenticateDemoUser navigates to /login and fires the login fetch —
+    // the page stays on /login with cookies set. Navigate to /dashboard so
+    // AuthProvider.checkAuth runs against the authenticated session.
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    // Wait for AuthProvider loading to resolve so the sidebar has rendered
+    // its links (during loading it shows a skeleton).
     const sidebar = page.locator('aside')
     await expect(sidebar, 'desktop sidebar must be visible at 1440px').toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible({ timeout: 30_000 })
 
     for (const p of PAGES) {
       const link = sidebar.getByRole('link', { name: p.name, exact: true })

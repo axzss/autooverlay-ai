@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { collect, describeCollected, runAgentAndWaitForResponse } from './helpers'
+import { collect, describeCollected, runAgentAndWaitForResponse, authenticateDemoUser } from './helpers'
 
 /**
  * Agent run flow on /dashboard.
@@ -14,10 +14,14 @@ test.describe('agent run flow', () => {
 
   test('run button populates the reasoning panel with grouped per-symbol rows', async ({ page }) => {
     const c = collect(page)
-    // domcontentloaded, not the default 'load'. /dashboard holds long-lived
-    // connections (dev HMR socket, in-flight /api/strategy/screen), so waiting
-    // for the full load event is unreliable here and timed out at 30s while the
-    // page was already interactive.
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    const csrfToken = await authenticateDemoUser(page)
+    if (!csrfToken) {
+      // Rate-limited — wait for window to reset and retry
+      await page.waitForTimeout(65_000)
+      await authenticateDemoUser(page)
+    }
+    // After login, navigate to dashboard and wait for hydration
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
 
     const panel = page.locator('.card').filter({ hasText: /Agent Reasoning/i }).first()
@@ -115,13 +119,14 @@ test.describe('agent run flow', () => {
   })
 
   test('grouped reasoning never renders a line longer than 300 characters', async ({ page }) => {
-    // A previous defect rendered 482-character lines: the blocked-entry verdict
-    // ends with a "; cited: <verbatim copy of the gate lines above>" tail, which
-    // duplicated ~400 characters per blocked symbol. lib/reasoning.ts trims that
-    // tail (trimCitedTail) because the gates are already displayed individually.
     // See the note above: domcontentloaded, not 'load'.
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
-
+    const csrfToken = await authenticateDemoUser(page)
+    if (!csrfToken) {
+      // Rate-limited — wait for window to reset and retry
+      await page.waitForTimeout(65_000)
+      await authenticateDemoUser(page)
+    }
     const panel = page.locator('.card').filter({ hasText: /Agent Reasoning/i }).first()
     await expect(panel, 'the Agent Reasoning card must render').toBeVisible()
     // Hydration race — see runAgentAndWaitForResponse.

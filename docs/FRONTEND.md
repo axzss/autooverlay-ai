@@ -71,8 +71,11 @@ GET /api/portfolio   → 200
 GET /portfolio       → 404
 ```
 
-The dev proxy in `next.config.js` must map `/api/health` → bare `/health`
-**before** the catch-all `/api/:path*` rule; Next matches in order.
+The dev proxy in `frontend/server.js` (custom Express server with
+`http-proxy-middleware`) maps `/api/*` → `http://127.0.0.1:8000` with
+`pathRewrite: { '^/api': '/api' }`. The Next.js rewrites in `next.config.js`
+were replaced because Next 14's proxy hits a `RequestInit: duplex option is
+required` error on POST bodies with the rewrite handler.
 
 ### Client surface
 

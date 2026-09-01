@@ -447,17 +447,42 @@ Route-level event log: `{"degraded": false, "events": [{"created_at", "route",
 
 ## 5. Mock and live behavior
 
-|| Condition | Behavior ||
-|---|---|
-|| Alpaca credentials absent | Safe mock account, screening, council, and order behavior ||
-|| Alpaca credentials present | Calls configured Alpaca paper/data APIs ||
-|| Invalid request | HTTP 422; no broker call ||
-|| Trade in mock mode | Validated only; `submitted: false` ||
-|| Option snapshot fails for one symbol | That symbol is skipped from screening ||
-|| Non-finite input | Rejected/sanitized into a safe validation response ||
-|| Strategy screen live failure | Returns `mode: "live"` plus `live_error` instead of mock fallback ||
-|| Council cycle live failure | Returns HTTP 502 instead of silently using mock portfolio ||
-|| Agent run | Returns `order_intents` for `INITIATE` directives, but never submits orders ||
+||| Condition | Behavior ||
+||---|---|
+||| Alpaca credentials absent | Safe mock account, screening, council, and order behavior ||
+||| Alpaca credentials present | Calls configured Alpaca paper/data APIs ||
+||| Invalid request | HTTP 422; no broker call ||
+||| Trade in mock mode | Validated only; `submitted: false` ||
+||| Option snapshot fails for one symbol | That symbol is skipped from screening ||
+||| Non-finite input | Rejected/sanitized into a safe validation response ||
+||| Strategy screen live failure | Returns `mode: "live"` plus `live_error` instead of mock fallback ||
+||| Council cycle live failure | Returns HTTP 502 instead of silently using mock portfolio ||
+||| Agent run | Returns `order_intents` for `INITIATE` directives, but never submits orders ||
+
+### Auth (session + CSRF, 2026-09-01)
+
+The backend enforces authentication on mutating routes and the agent endpoint:
+
+| Route | Auth Required | Method |
+|-------|---------------|--------|
+| `POST /api/trade` | Yes (session + CSRF) | Double-submit cookie |
+| `POST /api/trade/preflight` | Yes (session + CSRF) | Double-submit cookie |
+| `PUT /api/strategy/config` | Yes (session + CSRF) | Double-submit cookie |
+| `POST /api/agent/run` | Yes (session + CSRF) | Double-submit cookie |
+
+**Login flow:**
+1. `POST /api/auth/login` with `{ username, password }` → returns `200` with `csrf_token` in body, sets `ao_session` cookie (HttpOnly, 24h).
+2. Client stores `csrf_token` and includes it as `X-CSRF-Token` header on mutating requests.
+3. `GET /api/auth/me` returns user info if session valid, `401` if not.
+4. `POST /api/auth/logout` clears the session.
+
+**CSRF protection:** Double-submit pattern — the login response body carries the token; the cookie is HttpOnly so JS cannot read it. Mutating endpoints reject with `403` if the header is missing or mismatched.
+
+**Rate limiting:** `5` login attempts per minute per IP (in-process counter, 60s sliding window). Excess returns `429` with "Too many login attempts".
+
+**Dev credentials (hackathon scope, hardcoded in `backend/app/auth.py`):**
+- Username: `ADIT_IT_BOYS`
+- Password: `ADIT_HATERS_99`
 
 Credentials must never be committed or placed in documentation.
 

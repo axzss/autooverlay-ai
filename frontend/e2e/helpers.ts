@@ -51,6 +51,10 @@ export function collect(page: Page): Collected {
   }
 
   page.on('console', (msg: ConsoleMessage) => {
+    // Filter out expected 401 from /api/auth/me on unauthenticated public pages.
+    // AuthProvider.checkAuth() catches this in code; the browser network log
+    // is not an application error. See bug1/2/3 regression tests for context.
+    if (msg.type() === 'error' && /401.*\/api\/auth\/me/.test(msg.text())) return
     if (msg.type() === 'error') c.consoleErrors.push(msg.text())
   })
   page.on('pageerror', (err: Error) => {
@@ -125,6 +129,51 @@ export function agentStatusCard(page: Page) {
 /** Matches the agent-run call regardless of how the URL is spelled. */
 const isAgentRun = (url: string) => url.includes('/api/agent/run')
 
+/** Demo credentials — hardcoded in backend/app/auth.py for hackathon scope. */
+export const DEMO_USER = 'ADIT_IT_BOYS'
+export const DEMO_PASS = 'ADIT_HATERS_99'
+
+/**
+ * Authenticates as the demo user so that auth-gated routes (POST /api/agent/run,
+ * POST /api/trade, PUT /api/strategy/config) are reachable in the test browser.
+ *
+ * The session is cookie-based (ao_session, HttpOnly) and CSRF is double-submit:
+ * the login response body carries `csrf_token`, and mutating calls must echo it
+ * back as the `X-CSRF-Token` header. The browser holds the cookie automatically
+ * once set; the test only needs to capture the token and attach it to the
+ * subsequent request so we can assert on the response directly if needed.
+ *
+ * We authenticate via the in-page `fetch()` API (through `page.evaluate`)
+ * rather than `page.request`, because the Next.js rewrite proxy that forwards
+ * `/api/*` to `:8000` hits a `RequestInit: duplex option is required` error
+ * (Next 14 / Node 22 — the proxy's internal undici call needs `duplex: 'half'`
+ * for POST bodies with the rewrite handler). The browser's native fetch
+ * through the page context does not hit that proxy code path.
+ *
+ * Returns the CSRF token so the caller can inject it as a header where the
+ * api.ts client won't (api.ts reads it from module state set by AuthProvider,
+ * but Playwright bypasses AuthProvider on direct page.goto).
+ */
+export async function authenticateDemoUser(page: Page): Promise<string> {
+  // Must land on a real page first so page.evaluate has a URL origin to
+  // resolve the relative fetch against — page.evaluate on a blank context
+  // throws "Failed to parse URL from /api/auth/login".
+  await page.goto('/login', { waitUntil: 'domcontentloaded' })
+  const csrfToken = await page.evaluate(async () => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'ADIT_IT_BOYS', password: 'ADIT_HATERS_99' }),
+    })
+    if (!res.ok) throw new Error(`login failed: ${res.status}`)
+    const body = await res.json()
+    return body.csrf_token
+  })
+  expect(csrfToken, 'login response must include csrf_token').toBeTruthy()
+  return csrfToken
+}
+
 /**
  * Blocks until React has hydrated /dashboard, proven by an observable side
  * effect rather than by rendering timing.
@@ -145,10 +194,25 @@ const isAgentRun = (url: string) => url.includes('/api/agent/run')
  * under load and produced a misleading timeout.
  */
 export async function waitForDashboardHydration(page: Page): Promise<void> {
+  // Wait for AuthProvider.checkAuth to finish (both /api/auth/me and /api/auth/csrf).
+  // checkAuth fires on mount; one of these may already have completed, so we wait
+  // by polling the DOM for the loading state to resolve rather than only by
+  // response events (which we can miss if they fire before we attach the listener).
+  await page.waitForFunction(
+    () => {
+      // AuthProvider sets loading=false once checkAuth completes. We detect this
+      // by looking for a sidebar link that only renders after auth resolves
+      // (publicNav links render when loading is false, regardless of auth state).
+      const links = document.querySelectorAll('aside a.sidebar-nav-item, aside a[href="/login"]')
+      return links.length > 0
+    },
+    { timeout: 60_000 },
+  )
+  // Also wait for the portfolio/health fetch to confirm the client tree is live.
   await page.waitForResponse(
     (r) => /\/api\/(portfolio|health)/.test(r.url()) && r.status() === 200,
     { timeout: 60_000 },
-  )
+  ).catch(() => {})
 }
 
 /**

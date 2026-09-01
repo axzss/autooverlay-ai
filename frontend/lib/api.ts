@@ -236,6 +236,21 @@ export function riskBlockFrom(err: unknown): RiskDecision | null {
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD'])
 const RETRYABLE_STATUS = new Set([408, 429, 502, 503, 504])
 
+/**
+ * Module-level CSRF token. AuthProvider (via setApiCsrfToken) stores the token
+ * here after login/checkAuth; request() reads it to sign mutating fetches.
+ * A plain module variable avoids a React-hook cycle — request() is not a
+ * component and must not pull context, so the token is passed in explicitly
+ * at the only point that can read context.
+ */
+let _csrfToken: string | null = null
+export function setApiCsrfToken(token: string | null) {
+  _csrfToken = token
+}
+function getApiCsrfToken(): string | null {
+  return _csrfToken
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController()
   const slow = /\/(agent\/run|council\/(cycle|assess)|strategy\/screen)/.test(path)
@@ -256,11 +271,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       slow ? 45000 : 15000,
     )
     try {
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method)
+      const csrfToken = getApiCsrfToken()
       const res = await fetch(`${API_BASE_URL}${path}`, {
         ...init,
         signal: tryController.signal,
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          // Sign mutating requests with the CSRF token. GET/HEAD/OPTIONS are
+          // safe and must not carry it (double-submit requires it only on
+          // state-changing verbs; sending it on reads is harmless but noisy).
+          ...(isMutating && csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
           ...(init?.headers ?? {}),
         },
       })

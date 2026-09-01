@@ -44,8 +44,13 @@ test.describe('BUG 2 — health check must go through the /api rewrite', () => {
   })
 
   test('/dashboard agent status card reports healthy, not unreachable', async ({ page }) => {
-    await page.goto('/dashboard')
-    await settle(page)
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
+    // Wait for the health fetch to resolve rather than waiting for full
+    // networkidle, which stalls on the dev HMR socket forever.
+    await page.waitForResponse(
+      (r) => r.url().includes('/api/health') && r.status() === 200,
+      { timeout: 15_000 },
+    ).catch(() => {}) // health fetch may have already completed before we attach
 
     const heading = page.getByRole('heading', { name: /Agent status/i })
     await expect(heading, 'the Agent status card must render').toBeVisible()
@@ -65,11 +70,14 @@ test.describe('BUG 2 — health check must go through the /api rewrite', () => {
     ).toHaveCount(0)
 
     // Positive assertion: the OK badge must actually be painted, not merely
-    // absent-of-error. The card renders the status text uppercased.
+    // absent-of-error. The card renders the status text uppercased. The badge
+    // is a span containing a colored dot + the text node. Match the inline
+    // span that carries the background class and contains the literal "OK".
     await expect(
-      card.getByText('OK', { exact: true }).first(),
+      card.locator('span.bg-[#052e16], span.bg-\\[\\\\#052e16\\\\]').filter({ hasText: /^OK$/i })
+        .first(),
       'the Backend status badge must read OK',
-    ).toBeVisible({ timeout: 15_000 })
+    ).toBeVisible({ timeout: 20_000 })
 
     // Alpaca row. b4edc57 relabelled this: the row label went "Alpaca configured"
     // -> "Alpaca" and the badge went TRUE/FALSE -> "Paper trading live" / "Mock

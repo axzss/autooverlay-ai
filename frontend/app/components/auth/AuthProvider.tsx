@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import { setApiCsrfToken } from '../../../lib/api'
 
 interface User {
   username: string
@@ -25,6 +26,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
 
+  /** Persist the CSRF token in both the React state (for components) and the
+   *  module-level ref in lib/api.ts (read by api.request() to sign mutating
+   *  fetches). Keeping them in one place avoids the import-shadowing footgun
+   *  where a local `setCsrfToken` state setter masked the api setter. */
+  const syncCsrf = (token: string | null) => {
+    setCsrfToken(token)
+    setApiCsrfToken(token)
+  }
+
   const checkAuth = async () => {
     try {
       const res = await fetch('/api/auth/me', { credentials: 'include' })
@@ -35,20 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const csrfRes = await fetch('/api/auth/csrf', { credentials: 'include' })
         if (csrfRes.ok) {
           const csrfData = await csrfRes.json()
-          setCsrfToken(csrfData.csrf_token)
+          syncCsrf(csrfData.csrf_token)
         }
       } else {
         setUser(null)
-        setCsrfToken(null)
+        syncCsrf(null)
       }
     } catch {
       setUser(null)
-      setCsrfToken(null)
+      syncCsrf(null)
     } finally {
       setLoading(false)
     }
   }
-
   useEffect(() => {
     checkAuth()
   }, [])
@@ -81,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const data = await res.json()
     setUser({ username: data.user })
-    setCsrfToken(data.csrf_token)
+    syncCsrf(data.csrf_token)
     router.push('/dashboard')
     router.refresh()
   }
@@ -92,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       credentials: 'include',
     })
     setUser(null)
-    setCsrfToken(null)
+    syncCsrf(null)
     router.push('/login')
     router.refresh()
   }
