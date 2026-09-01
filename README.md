@@ -111,7 +111,7 @@ Restart VS Code, then try: “What is my Alpaca account balance and buying power
 
 ```bash
 # Tests — run both suites (agent + backend)
-pytest agent/tests backend/tests -q     # 596 passed, 1 skipped
+pytest agent/tests backend/tests -q     # 705 passed, 1 skipped
 
 # Frontend gates
 cd frontend && npx tsc -p tsconfig.json --noEmit
