@@ -30,8 +30,8 @@ def _configure_test_alpaca(monkeypatch):
 
 def test_daily_bars_timeout_is_safe_error(monkeypatch):
     _configure_test_alpaca(monkeypatch)
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
-        client_cls.return_value.__enter__.return_value.request.side_effect = httpx.TimeoutException("timed out")
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
+        get_client.return_value.request.side_effect = httpx.TimeoutException("timed out")
 
         with pytest.raises(AlpacaAPIError, match="timed out"):
             AlpacaClient().get_daily_bars("AAPL")
@@ -39,8 +39,8 @@ def test_daily_bars_timeout_is_safe_error(monkeypatch):
 
 def test_option_snapshot_http_error_is_safe_error(monkeypatch):
     _configure_test_alpaca(monkeypatch)
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
-        client_cls.return_value.__enter__.return_value.request.return_value = _response(429, b"rate limited")
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
+        get_client.return_value.request.return_value = _response(429, b"rate limited")
 
         with pytest.raises(AlpacaAPIError, match="429"):
             AlpacaClient().get_option_snapshots("AAPL")
@@ -48,9 +48,9 @@ def test_option_snapshot_http_error_is_safe_error(monkeypatch):
 
 def test_daily_bars_requires_mapping_response(monkeypatch):
     _configure_test_alpaca(monkeypatch)
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
         response = _response(json_value={"bars": []})
-        client_cls.return_value.__enter__.return_value.request.return_value = response
+        get_client.return_value.request.return_value = response
 
         with pytest.raises(AlpacaAPIError, match="bars"):
             AlpacaClient().get_daily_bars("AAPL")
@@ -74,9 +74,9 @@ def test_option_snapshots_accepts_dict_payload(monkeypatch):
             }
         }
     }
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
         response = _response(json_value=payload)
-        client_cls.return_value.__enter__.return_value.request.return_value = response
+        get_client.return_value.request.return_value = response
 
         snapshots = AlpacaClient().get_option_snapshots("AAPL")
 
@@ -88,9 +88,9 @@ def test_option_snapshots_accepts_dict_payload(monkeypatch):
 def test_option_snapshots_rejects_non_container_payload(monkeypatch):
     """A scalar where the container belongs is still a hard error."""
     _configure_test_alpaca(monkeypatch)
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
         response = _response(json_value={"snapshots": "unexpected"})
-        client_cls.return_value.__enter__.return_value.request.return_value = response
+        get_client.return_value.request.return_value = response
 
         with pytest.raises(AlpacaAPIError, match="snapshots"):
             AlpacaClient().get_option_snapshots("AAPL")
@@ -109,8 +109,8 @@ def test_option_snapshots_follows_pagination(monkeypatch):
             "next_page_token": None,
         }),
     ]
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
-        client_cls.return_value.__enter__.return_value.request.side_effect = pages
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
+        get_client.return_value.request.side_effect = pages
 
         snapshots = AlpacaClient().get_option_snapshots("AAPL")
 
@@ -127,8 +127,8 @@ def test_option_snapshots_pagination_is_bounded(monkeypatch):
         "snapshots": {"AAPL301231C00175000": {"greeks": {"delta": 0.2}}},
         "next_page_token": "always-more",
     })
-    with patch("backend.app.alpaca_client.httpx.Client") as client_cls:
-        request_mock = client_cls.return_value.__enter__.return_value.request
+    with patch("backend.app.alpaca_client._get_shared_client") as get_client:
+        request_mock = get_client.return_value.request
         request_mock.return_value = endless
 
         snapshots = AlpacaClient().get_option_snapshots("AAPL")

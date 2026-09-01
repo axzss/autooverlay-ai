@@ -3,18 +3,53 @@
 from __future__ import annotations
 
 import math
+import time
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..adapters.options import normalize_snapshot, parse_occ
 from ..alpaca_client import AlpacaAPIError, AlpacaClient, is_configured
-from ..auth import get_current_user, require_csrf
+from ..auth import get_current_user, get_session_id, require_csrf
 from .council import CouncilCycleRequest, council_cycle
+from .strategy import _active_config
 
 router = APIRouter()
+
+_active_run_cache: dict[str, dict] = {}
+RUN_TTL_SECONDS = 30 * 60
+
+
+def _clean_expired_runs() -> None:
+    now = time.time()
+    expired = [
+        run_id
+        for run_id, payload in _active_run_cache.items()
+        if now - payload.get("cached_at", 0) > RUN_TTL_SECONDS
+    ]
+    for run_id in expired:
+        _active_run_cache.pop(run_id, None)
+
+
+@router.get("/agent/run/{run_id}")
+async def get_agent_run(
+    run_id: str,
+    session_id: str | None = Depends(get_session_id),
+) -> dict:
+    _clean_expired_runs()
+    payload = _active_run_cache.get(run_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="agent run not found")
+    if session_id and payload.get("session_id") not in (session_id, None):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return payload.get("data", {})
+
+
+@router.post("/agent/run/order")
+async def reject_order_execution() -> dict:
+    raise HTTPException(status_code=404, detail="not found")
 
 
 def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
@@ -162,6 +197,7 @@ async def agent_run(
     req: AgentRunRequest,
     _user: dict = Depends(get_current_user),
     _csrf: None = Depends(require_csrf),
+    session_id: str | None = Depends(get_session_id),
 ) -> dict:
     """Run analysis and return recommendations without submitting orders."""
     cycle = await council_cycle(CouncilCycleRequest(
@@ -182,8 +218,9 @@ async def agent_run(
         "portfolio_state": cycle.get("portfolio_state", {}),
         "blocked_entries": len(cycle.get("blocked_entries", {})),
     }
-    return {
-        "run_id": f"run-{uuid4().hex}",
+    run_id = f"run-{uuid4().hex}"
+    response = {
+        "run_id": run_id,
         "status": "completed",
         "mode": "live" if is_configured() else "mock",
         "orders_ready": False,
@@ -194,3 +231,9 @@ async def agent_run(
         "cycle": cycle,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }
+    _active_run_cache[run_id] = {
+        "session_id": session_id,
+        "data": response,
+        "cached_at": time.time(),
+    }
+    return response

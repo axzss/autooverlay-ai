@@ -14,6 +14,7 @@ Keys are never hardcoded in this repository.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import httpx
@@ -65,6 +66,18 @@ def _headers() -> dict[str, str]:
     }
 
 
+# Reuse one HTTP client across calls. httpx.Client is thread-safe, and Alpaca
+# data endpoints do not require per-call setup.
+_shared_client = None
+
+
+def _get_shared_client() -> httpx.Client:
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = httpx.Client(timeout=httpx.Timeout(15.0, connect=5.0))
+    return _shared_client
+
+
 class AlpacaClient:
     """Thin synchronous wrapper over the Alpaca Trading / Data REST APIs."""
 
@@ -72,16 +85,24 @@ class AlpacaClient:
     # next_page_token cannot spin this loop forever inside one HTTP request.
     MAX_SNAPSHOT_PAGES = 10
 
-    def __init__(self, timeout: float = 15.0) -> None:
-        self.timeout = timeout
+    # In-memory caches keep repeated dashboard/strategy reads from hitting the
+    # network on every keystroke/route change. TTLs are intentionally short so
+    # the UI reflects live state without manual refresh.
+    _BARS_TTL_SECONDS = 60
+    _SNAPSHOTS_TTL_SECONDS = 30
+
+    def __init__(self) -> None:
+        # Instance creation is cheap; real work is funneled through the shared
+        # client above so TCP/TLS is reused across threads/calls.
+        self._bars_cache: dict[str, tuple[float, list[dict]]] = {}
+        self._snapshots_cache: dict[str, tuple[float, list[dict]]] = {}
 
     # -- trading api -------------------------------------------------------
 
     def _trading_request(self, method: str, path: str, json_body: dict | None = None) -> Any:
         url = f"{get_base_url().rstrip('/')}{path}"
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                resp = client.request(method, url, headers=_headers(), json=json_body)
+            resp = _get_shared_client().request(method, url, headers=_headers(), json=json_body)
         except httpx.TimeoutException as exc:
             raise AlpacaAPIError(f"Alpaca request timed out: {method} {path}") from exc
         except httpx.RequestError as exc:
@@ -124,14 +145,13 @@ class AlpacaClient:
             raise AlpacaAPIError("Alpaca orders response must be a list")
         return result
 
-    # -- data api (option chains) -----------------------------------------
-
-    # -- data api (equity bars) ---------------------------------------------
+    # -- data api (equity bars) -------------------------------------------
 
     def _data_request(self, method: str, url: str, params: dict) -> dict:
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                resp = client.request(method, url, headers=_headers(), params=params)
+            resp = _get_shared_client().request(
+                method, url, headers=_headers(), params=params
+            )
         except httpx.TimeoutException as exc:
             raise AlpacaAPIError(f"Alpaca data request timed out: {method} {url}") from exc
         except httpx.RequestError as exc:
@@ -148,9 +168,18 @@ class AlpacaClient:
             raise AlpacaAPIError("Alpaca data API response must be an object")
         return payload
 
+    def _bars_cache_key(self, symbol: str, days: int) -> str:
+        return f"bars:{symbol.upper()}:{days}"
+
     def get_daily_bars(self, symbol: str, days: int = 365) -> list[dict]:
-        """Return daily equity bars (list of {c, t, ...}) for the trailing window."""
+        """Return daily equity bars for the trailing window, with short TTL."""
         from datetime import datetime, timedelta, timezone
+
+        cache_key = self._bars_cache_key(symbol, days)
+        now = time.time()
+        cached = self._bars_cache.get(cache_key)
+        if cached and now - cached[0] < self._BARS_TTL_SECONDS:
+            return cached[1]
 
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=days)
@@ -170,21 +199,23 @@ class AlpacaClient:
         bars = bars_by_symbol.get(symbol.upper(), [])
         if not isinstance(bars, list) or not all(isinstance(bar, dict) for bar in bars):
             raise AlpacaAPIError("Alpaca bars response must contain a list")
+        self._bars_cache[cache_key] = (now, bars)
         return bars
 
-    def get_option_snapshots(self, underlying: str) -> list[dict]:
-        """Return option snapshots for an underlying (indicative feed).
+    # -- data api (option snapshots) --------------------------------------
 
-        Alpaca returns ``snapshots`` as a **dict keyed by OCC option symbol**.
-        This method used to require a list and raised ``AlpacaAPIError`` on
-        every live call, so no options data ever reached the strategy layer
-        (docs/BRIEF-BACKEND-V2.md D1). It now accepts the dict form and the
-        list form, normalises to a list of dicts each carrying ``symbol``, and
-        follows ``next_page_token``: a liquid underlying's chain exceeds one
-        page, and truncating it biases the screen toward whichever strikes
-        happen to arrive first.
-        """
+    def _snapshots_cache_key(self, underlying: str) -> str:
+        return f"snapshots:{underlying.upper()}"
+
+    def get_option_snapshots(self, underlying: str) -> list[dict]:
+        """Return option snapshots for an underlying, with short TTL."""
         from .adapters.options import iter_snapshot_entries
+
+        cache_key = self._snapshots_cache_key(underlying)
+        now = time.time()
+        cached = self._snapshots_cache.get(cache_key)
+        if cached and now - cached[0] < self._SNAPSHOTS_TTL_SECONDS:
+            return cached[1]
 
         url = f"{get_data_url().rstrip('/')}/v1beta1/options/snapshots/{underlying.upper()}"
         out: list[dict] = []
@@ -204,6 +235,7 @@ class AlpacaClient:
             page_token = payload.get("next_page_token") or None
             if not page_token:
                 break
+        self._snapshots_cache[cache_key] = (now, out)
         return out
 
 
