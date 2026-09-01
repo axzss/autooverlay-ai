@@ -64,34 +64,40 @@ cd frontend && npm install && npm run dev
 
 Open http://localhost:3000/dashboard
 
-## MCP server
+## AI router
 
-This repo now installs the Alpaca MCP server into the backend virtualenv.
+This repo uses an OpenRouter-backed AI router for model access.
 
-- Added to `backend/requirements.txt`: `alpaca-mcp-server>=2.0`
-- Project-local entrypoint: `backend/.venv/Scripts/alpaca-mcp-server.exe`
+Configure these in `backend/.env`:
 
-### VS Code
-
-Configure VS Code’s MCP client (`C:\Users\<you>\AppData\Roaming\Code\User\mcp.json`) to use the venv entrypoint and load `backend/.env`:
-
-```json
-{
-  "servers": {
-    "alpaca": {
-      "command": "C:/path/to/autooverlay-ai/backend/.venv/Scripts/alpaca-mcp-server.exe",
-      "args": [
-        "--env-file",
-        "C:/path/to/autooverlay-ai/backend/.env"
-      ]
-    }
-  }
-}
+```bash
+AI_ROUTER_BASE_URL=https://openrouter.ai/api/v1
+AI_ROUTER_API_KEY=your_openrouter_api_key
+AI_ROUTER_MODEL=openai/gpt-4o-mini
 ```
 
-Restart VS Code, then try: “What is my Alpaca account balance and buying power?”
+Example:
 
-Note: the MCP server is a development helper, not required by the web app itself.
+```bash
+curl https://openrouter.ai/api/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AI_ROUTER_API_KEY" \
+  -d "{\"model\":\"$AI_ROUTER_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one sentence.\"}]}"
+```
+
+Note: the AI router is an integration point for agent features; the web app still functions without it using local/mock paths.
+
+### Fallback LLM
+
+If the primary AI router is unavailable, the backend can fall back to another OpenAI-compatible provider.
+
+Configure in `backend/.env`:
+
+```bash
+LLM_FALLBACK_BASE_URL=https://20a324a2313f.nofx.one
+LLM_FALLBACK_API_KEY=your_fallback_llm_api_key
+LLM_FALLBACK_MODEL=z-ai/glm-5.3-free
+```
 
 ```bash
 # Tests — run both suites (agent + backend)
