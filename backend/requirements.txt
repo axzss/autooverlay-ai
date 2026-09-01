@@ -8,3 +8,4 @@ httpx>=0.26
 # bullets like "Margins unavailable" — a data outage that reads as analysis.
 requests>=2.31
 pytest>=8.0
+alpaca-mcp-server>=2.0

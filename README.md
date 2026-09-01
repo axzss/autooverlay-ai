@@ -54,7 +54,8 @@ Full details: [`docs/RISK-MANAGEMENT.md`](docs/RISK-MANAGEMENT.md) and [`docs/RI
 cp .env.example .env        # ALPACA_KEY, ALPACA_SECRET, ALPACA_BASE_URL
 
 # 2. Backend (works without credentials — falls back to mock data)
-cd backend && pip install -r requirements.txt
+cd backend
+pip install -r requirements.txt
 PYTHONPATH=.. uvicorn app.main:app --reload
 
 # 3. Frontend
@@ -62,6 +63,35 @@ cd frontend && npm install && npm run dev
 ```
 
 Open http://localhost:3000/dashboard
+
+## MCP server
+
+This repo now installs the Alpaca MCP server into the backend virtualenv.
+
+- Added to `backend/requirements.txt`: `alpaca-mcp-server>=2.0`
+- Project-local entrypoint: `backend/.venv/Scripts/alpaca-mcp-server.exe`
+
+### VS Code
+
+Configure VS Code’s MCP client (`C:\Users\<you>\AppData\Roaming\Code\User\mcp.json`) to use the venv entrypoint and load `backend/.env`:
+
+```json
+{
+  "servers": {
+    "alpaca": {
+      "command": "C:/path/to/autooverlay-ai/backend/.venv/Scripts/alpaca-mcp-server.exe",
+      "args": [
+        "--env-file",
+        "C:/path/to/autooverlay-ai/backend/.env"
+      ]
+    }
+  }
+}
+```
+
+Restart VS Code, then try: “What is my Alpaca account balance and buying power?”
+
+Note: the MCP server is a development helper, not required by the web app itself.
 
 ```bash
 # Tests — run both suites (agent + backend)

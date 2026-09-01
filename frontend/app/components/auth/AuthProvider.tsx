@@ -65,9 +65,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Protect routes: redirect to login if accessing protected pages without auth
   useEffect(() => {
     if (!loading) {
-      const protectedPaths = ['/terminal', '/settings', '/risk', '/blotter', '/lab']
-      const isProtected = protectedPaths.some((p) => pathname.startsWith(p))
-      if (isProtected && !user) {
+      const publicPaths = ['/login']
+      const isPublic = publicPaths.some((p) => pathname.startsWith(p))
+      if (!isPublic && !user) {
         router.push('/login')
       }
       // If logged in and on login page, go to dashboard

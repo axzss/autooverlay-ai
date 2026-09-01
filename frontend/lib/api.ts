@@ -11,6 +11,20 @@ import type {
 } from '../app/types/portfolio'
 import mockPortfolio from '../app/data/mock_portfolio.json'
 
+export interface AgentRunResponse {
+  run_id: string
+  status: string
+  mode: string
+  orders_ready: boolean
+  order_intents: OrderIntent[]
+  recommendations: DailyDirective[]
+  risk_summary: AgentRiskSummary
+  reasoning_trace: string[]
+  cycle?: CycleResponse
+  completed_at?: string
+  [key: string]: unknown
+}
+
 /**
  * Empty string = same origin.
  *
@@ -420,19 +434,6 @@ export interface AgentRiskSummary {
  * (action/symbol/params/priority/reasoning_trace/provenance), not the
  * screening-shaped AgentRecommendation used by /strategy/screen.
  */
-export interface AgentRunResponse {
-  run_id: string
-  status: string
-  mode: string
-  orders_ready: boolean
-  order_intents: OrderIntent[]
-  recommendations: DailyDirective[]
-  risk_summary: AgentRiskSummary
-  reasoning_trace: string[]
-  cycle?: CycleResponse
-  completed_at?: string
-  [key: string]: unknown
-}
 
 export interface CouncilVerdict {
   persona: string
@@ -507,6 +508,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
+  getAgentRun: (runId: string) =>
+    request<AgentRunResponse>(`/api/agent/run/${encodeURIComponent(runId)}`),
   assessCouncil: (symbols?: string[]) =>
     symbols && symbols.length > 0
       ? request<CouncilAssessResponse>('/api/council/assess', {
