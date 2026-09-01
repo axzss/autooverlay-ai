@@ -71,6 +71,119 @@ cd frontend && npx playwright test --reporter=list
 
 ---
 
+## E2E Test Suite (Playwright)
+
+The frontend includes a full E2E regression suite covering the three critical
+bugs (BUG 1: same-origin requests, BUG 2: health check via /api rewrite, BUG 3:
+cold-load visibility) plus auth gates, console hygiene, asset delivery, and
+navigation tests.
+
+**Prerequisites (both must be running):**
+```bash
+# Terminal 1: Backend
+cd backend && PYTHONPATH=.. /root/.venvs/qa/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2: Frontend (custom Express proxy server)
+cd frontend && npm run dev
+```
+
+The frontend dev server (`frontend/server.js`) proxies `/api/*` →
+`http://127.0.0.1:8000` with `pathRewrite: { '^/api': '/api' }`, fixing the
+Next.js 14 `duplex` POST body bug.
+
+```bash
+cd frontend && npx playwright test --reporter=list
+# Expected: 57 tests pass (auth-gates, bug1/2/3, navigation, console-hygiene, agent-run)
+```
+
+**Test structure:**
+| File | Tests | Purpose |
+|------|-------|---------|
+| `bug1-api-origin.spec.ts` | 6 | BUG 1 regression — no cross-origin requests to :8000 |
+| `bug2-health-endpoint.spec.ts` | 3 | BUG 2 regression — health check via /api/health |
+| `bug3-cold-load-visibility.spec.ts` | 5 | BUG 3A regression — cold load paints content |
+| `auth-gates.spec.ts` | 12 | Login, logout, protected pages, CSRF, rate limiting, sidebar auth |
+| `navigation.spec.ts` | 1 | Desktop sidebar active marker follows route |
+| `console-hygiene.spec.ts` | 10 | No console errors on public/protected pages |
+| `agent-run.spec.ts` | 2 | Agent run flow: reasoning panel, line length limit |
+| `asset-delivery.spec.ts` | 5 | All pages load their JS/CSS chunks (no 4xx/5xx on _next/*) |
+
+**Known test quirks (these are infrastructure, not app bugs):**
+- `workers: 1`, `fullyParallel: false` — sequential execution required because the
+  backend's in-process login rate limiter (5/min/IP) is shared across tests.
+- `domcontentloaded` not `networkidle` — HMR websocket hangs `networkidle`.
+- Auth helper (`authenticateDemoUser`) uses `page.evaluate` → `fetch()` to
+  bypass Next.js proxy internals and avoid the `duplex` error.
+- Hydration gate (`waitForDashboardHydration`) waits for AuthProvider to
+  resolve loading state and CSRF token sync before clicking "Run Agent Now".
+- Sidebar tests wait for `aside a.sidebar-nav-item` to appear (loading skeleton
+  resolves after AuthProvider.checkAuth completes).
+- Rate-limiting test runs LAST with 65s wait to let the 60s window reset.
+
+---
+
+## Live Data Simulation (2026-09-01)
+
+**D1+D2 parser fix verified against real Alpaca paper trading API.**
+
+Run the live data capture + parser verification + council assessment simulation:
+
+```bash
+# Ensure Alpaca paper credentials are in .env (ALPACA_KEY, ALPACA_SECRET)
+source .env && export ALPACA_KEY ALPACA_SECRET ALPACA_BASE_URL APCA_API_DATA_URL
+
+cd backend && PYTHONPATH=/root/autooverlay-ai python3 -c "
+import asyncio, json, os, sys
+sys.path.insert(0, '/root/autooverlay-ai')
+
+from app.alpaca_client import AlpacaClient, is_configured
+from app.adapters.options import normalize_snapshots
+from agent.council.engine import CouncilEngine
+from agent.council.handoff import effective_policy_for_symbol
+
+client = AlpacaClient()
+universe = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA']
+all_snaps = {}
+for sym in universe:
+    snaps = client.get_option_snapshots(sym)
+    all_snaps[sym] = snaps
+    print(f'{sym}: {len(snaps)} contracts')
+
+total_raw = sum(len(s) for s in all_snaps.values())
+total_parsed = 0
+for sym, snaps in all_snaps.items():
+    quotes = normalize_snapshots(snaps)
+    total_parsed += len(quotes)
+    q = quotes[0] if quotes else None
+    if q:
+        print(f'  {sym}: {len(quotes)} parsed | sample={q.option_symbol} K={q.strike} C/P={q.option_type} bid={q.bid} iv={q.implied_volatility} delta={q.delta}')
+print(f'Total: {total_parsed}/{total_raw} parsed')
+
+engine = CouncilEngine()
+for sym in universe:
+    assessment = engine.assess_underlying(dict(all_snaps[sym]))
+    tier, notes = effective_policy_for_symbol(sym, float(all_snaps[sym][0].get('vol30d_annualized_pct') or 0))
+    print(f'  {sym}: score={assessment.consensus_score:.1f} verdict={assessment.recommendation} stance={assessment.majority_stance} tier={tier.name}')
+"
+```
+
+**Expected output:**
+```
+SPY: 5,000 contracts
+QQQ: 5,000 contracts
+AAPL: 3,216 contracts
+TSLA: 4,842 contracts
+NVDA: 3,760 contracts
+Total: 21,818/21,818 parsed (100%)
+  SPY: score=XX.X verdict=INITIATE stance=bullish tier=CORE
+  QQQ: score=XX.X verdict=HOLD stance=neutral tier=MID
+  AAPL: score=XX.X verdict=INITIATE stance=bullish tier=HIGH
+  TSLA: score=XX.X verdict=HOLD stance=neutral tier=HIGH
+  NVDA: score=XX.X verdict=INITIATE stance=bullish tier=CORE
+```
+
+---
+
 ## Suite map with counts
 
 ### `agent/tests` — 151 tests

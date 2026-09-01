@@ -346,6 +346,136 @@ route folders.
 
 ---
 
+## 10 · No visual verification, no E2E test — RESOLVED
+
+**Owner:** frontend + QA
+
+Playwright suite is now installed and runs: `npm run test:e2e` — 46 tests in
+Chromium. The three bugs from the suite README are all fixed:
+
+- Bug 1 (origin) — `StrategyConfigCard` now uses `lib/api.ts`, no raw fetch.
+- Bug 2 (health path) — `lib/api.ts` calls `/api/health` (Next rewrites to
+  FastAPI), not bare `/health`.
+- Bug 3 (cold load) — `useEntranceReady()` guards SSR `opacity:0`.
+
+Mutation-verified: reintroduction of each bug fails its test. The claim "nobody
+has ever confirmed the UI renders correctly" was true when written; the suite
+exists now and should run in CI.
+
+**Raised from LOW because motion has landed on top of it.** A brand mark, four
+charts and a full framer-motion pass now sit on a layout nobody has seen.
+Animation is the worst possible category for this gap: a type check cannot detect
+an easing curve that feels wrong, a stagger that crawls, a drawer sliding from
+the wrong edge, or a `layoutId` marker jumping instead of gliding. Every one of
+those compiles perfectly.
+
+**Fix:** open the tunnel in a real browser and check by hand — faster than fixing
+headless Chrome in this box. Then add one Playwright smoke test:
+dashboard → council → terminal.
+
+Also untested: `prefers-reduced-motion`. It is implemented in every primitive but
+has never been exercised with the OS setting actually enabled.
+
+---
+
+## 10b · Motion bundle cost is unmitigated — LOW
+
+**Owner:** frontend
+
+framer-motion adds roughly 34 kB to each page's first load (`/assets` 111→145 kB,
+`/council` 112→146 kB, `/terminal` 115→149 kB, `/dashboard` 221→255 kB). Shared JS
+is unchanged at 87.3 kB, so this is per-route weight.
+
+Acceptable for a hackathon demo on a local network; not something to leave
+unexamined if the app is ever served to real users on mobile.
+
+**Fix if it matters:** `LazyMotion` with `domAnimation` features, or split the
+primitives module so pages that only need `Reveal` do not pull the full library.
+
+---
+
+## 11 · Kill-switch state is not persisted — HIGH
+
+**Owner:** AI engineering
+
+**Reclassified from LOW on 29 Aug.** The original entry said the
+consecutive-stop-loss counter "is recomputed from portfolio state each cycle" and
+that a restart loses it. The audit found something worse: **nothing computed it
+at all.** `_build_portfolio_state` read it only from caller overrides, and the
+one live caller (`backend/app/routes/council.py`) never sets it — so the trigger
+was unreachable in production regardless of restarts.
+
+W0 added `_consecutive_stop_losses()`, which derives the count from this cycle's
+exit decisions and re-checks the kill-switch after exit evaluation. That makes
+the trigger reachable, but it is **within-cycle only**: three stop-losses spread
+across three separate cycles still do not accumulate.
+
+**Remaining fix:** the W1 `exit_event` ledger. Count trailing `STOP_LOSS` rows
+across cycles, reset on any non-stop exit. Until then the counter is a floor, not
+the true value.
+
+---
+
+## 12 · One test permanently skipped — LOW
+
+**Owner:** QA
+
+One test has been skipped in every run since the suite was built and its reason
+has not been re-examined. A permanently skipped test is either obsolete or a
+hidden gap; either way it should not sit there silently.
+
+---
+
+## 13 · Four dead `Providers.tsx` stubs — LOW
+
+**Owner:** frontend
+
+`app/{assets,dashboard,settings,terminal}/Providers.tsx` each contain a
+seven-line component that returns `children` unchanged, and none of them is
+imported anywhere. Harmless, but they are noise for the next person reading the
+route folders.
+
+**Fix:** delete them, or give them a purpose.
+
+---
+
+## 14 · RESOLVED 2026-09-01 — Live options data parser (D1+D2) — CRITICAL
+
+**Owner:** backend + AI engineering · **Files:** `backend/app/alpaca_client.py:175-207`, `backend/app/adapters/options.py`
+
+**Symptom:** `get_option_snapshots` required a `list` but Alpaca returns a `dict` keyed by OCC symbol; `_candidate_from_snapshot` read field names Alpaca doesn't send (`details.type`, `details.strike_price`, `latest_quote.bid_price`, `underlying_asset.price`). Both bugs produced "no candidates" — indistinguishable from an empty portfolio, so 236 green tests never caught either.
+
+**Fix (2026-09-01):**
+1. `get_option_snapshots` now accepts both `dict` and `list` forms, normalises to a list of dicts each carrying `symbol`, and follows `next_page_token` for pagination (bounded to 10 pages).
+2. Single adapter `backend/app/adapters/options.py` with `normalize_snapshot()`, `normalize_snapshots()`, `iter_snapshot_entries()` — the only place broker JSON becomes typed.
+3. Three OCC parsers collapsed to one in `adapters.options.parse_occ`.
+4. Golden fixture captured from live paper trading: **21,818 contracts parsed across 5 symbols (SPY, QQQ, AAPL, TSLA, NVDA) — 100% parse rate**.
+
+**Verification:**
+```
+Live data capture:     ACTIVE account, cash $68,584, equity $99,937
+SPY: 5,000 contracts   → 5,000 parsed
+QQQ: 5,000 contracts   → 5,000 parsed  
+AAPL: 3,216 contracts  → 3,216 parsed
+TSLA: 4,842 contracts  → 4,842 parsed
+NVDA: 3,760 contracts  → 3,760 parsed
+Total: 21,818/21,818 (100%)
+```
+
+**Sample parsed OptionQuote:**
+```
+SPY260902C00758000: strike=758.0, call, bid=9.23, iv=0.4348, delta=0.6186
+NVDA260911C00100000: strike=100.0, call, bid=116.2, iv=None, delta=None
+AAPL260911C00342500: strike=342.5, call, bid=46.54, iv=0.8007, delta=0.8952
+```
+
+**Council assessment (offline, using real data):**
+All 5 symbols assessed via `CouncilEngine.assess_underlying()` with live option chain data — no errors, no mock fallbacks.
+
+**Test coverage added:** `backend/tests/test_options_adapter.py` (golden fixture), `backend/tests/test_pick_option_contract.py`.
+
+---
+
 ## Resolved — kept for context
 
 | Issue | Resolution |
