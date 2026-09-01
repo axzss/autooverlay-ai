@@ -79,6 +79,17 @@ def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
         quote = normalize_snapshot(str(snap.get("symbol") or ""), snap)
         if quote is None or quote.underlying != symbol.upper():
             continue
+        # Ensure contract matches strategy option type (Call for Covered Call, Put for Cash-Secured Put)
+        expected_type = params.get("expected_option_type")
+        if not expected_type:
+            strats = params.get("strategy_allowed") or []
+            if "COVERED_CALL" in strats and "CASH_SECURED_PUT" not in strats:
+                expected_type = "call"
+            elif "CASH_SECURED_PUT" in strats and "COVERED_CALL" not in strats:
+                expected_type = "put"
+        if expected_type and quote.option_type != expected_type:
+            continue
+
         # A missing delta excludes the contract. It must never be treated as
         # 0.0, which would pass any delta band trivially.
         if quote.delta is None:
@@ -91,7 +102,10 @@ def _pick_option_contract(symbol: str | None, params: dict) -> dict | None:
             continue
         if quote.bid is None and quote.ask is None:
             continue
-        limit_price = round((quote.bid or quote.ask or 0.0) + 0.05, 2)
+        if params.get("use_midpoint", False) and quote.bid is not None and quote.ask is not None and quote.bid > 0 and quote.ask > 0:
+            limit_price = round((quote.bid + quote.ask) / 2.0, 2)
+        else:
+            limit_price = round((quote.bid or quote.ask or 0.0) + 0.05, 2)
         candidates.append({
             "symbol": symbol,
             "option_symbol": quote.option_symbol,
@@ -163,6 +177,10 @@ def _order_intents(directives: list[dict]) -> list[dict]:
         if not strategy:
             continue
         contracts = params.get("contracts") or params.get("size") or 1
+        if strategy == "COVERED_CALL":
+            params["expected_option_type"] = "call"
+        elif strategy == "CASH_SECURED_PUT":
+            params["expected_option_type"] = "put"
         option = _pick_option_contract(directive.get("symbol"), params)
         option_symbol = option["option_symbol"] if option else params.get("option_symbol")
         limit_price = option["limit_price"] if option else params.get("limit_price")

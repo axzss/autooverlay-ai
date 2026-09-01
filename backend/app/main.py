@@ -29,8 +29,22 @@ from .routes.agent import router as agent_router
 from .routes.portfolio import router as portfolio_router
 from .routes.strategy import router as strategy_router
 from .routes.trade import router as trade_router
+from .routes.bot import router as bot_router
+from .scheduler import get_bot_scheduler
 
 app = FastAPI(title="AutoOverlay AI Backend", version="0.1.0")
+
+
+@app.on_event("startup")
+def startup_event():
+    # Initializes and starts the 1-hour autonomous scheduler if configured
+    get_bot_scheduler()
+
+
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler = get_bot_scheduler()
+    scheduler.stop()
 
 
 def _cors_origins() -> list[str]:
@@ -55,6 +69,7 @@ app.include_router(trade_router, prefix="/api", tags=["trading"])
 app.include_router(strategy_router, prefix="/api", tags=["strategy"])
 app.include_router(council_router, prefix="/api", tags=["council"])
 app.include_router(agent_router, prefix="/api", tags=["agent"])
+app.include_router(bot_router, prefix="/api", tags=["bot"])
 
 
 def _sanitize(obj):

@@ -145,6 +145,12 @@ class AlpacaClient:
             raise AlpacaAPIError("Alpaca orders response must be a list")
         return result
 
+    def get_clock(self) -> dict:
+        result = self._trading_request("GET", "/v2/clock")
+        if not isinstance(result, dict):
+            raise AlpacaAPIError("Alpaca clock response must be an object")
+        return result
+
     # -- data api (equity bars) -------------------------------------------
 
     def _data_request(self, method: str, url: str, params: dict) -> dict:

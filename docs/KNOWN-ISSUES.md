@@ -58,6 +58,21 @@ finding S5, one step earlier in the pipeline. See #1 below.
 
 ---
 
+## 0.1 · Resolved 1 Sep — Autonomous AI Bot & P0 Overlay Fixes
+
+Six findings and core infrastructure upgrades implemented, regression-tested (596 passing tests):
+
+| # | Finding | Fix |
+|---|---|---|
+| D1 | **Inverted Liability Drawdown False Halts**: Short option market value is a liability ($-\$500$) that decays toward \$0 as the trade wins. Treating absolute market value as equity caused profitable trades to trigger a $-90\%$ drawdown kill-switch halt. | `_OCC_PARSE_RE` parses contract strike and computes true underlying collateral ($\text{Strike} \times 100 \times \text{Contracts}$), creating a stable collateral mark. |
+| D2 | **Option Type Blindness in Screener**: `_pick_option_contract` did not filter by `call` vs `put`, allowing puts to match covered call directives. | Enforced `expected_option_type` (`call` for Covered Calls, `put` for Cash-Secured Puts). |
+| D3 | **Hardcoded SPY Exclusion**: `backend/app/routes/council.py` had a hardcoded `symbol != "SPY"` filter on held positions. | Removed arbitrary exclusion, enabling SPY covered calls. |
+| D4 | **Tech Sector Cap Cold-Start Deadlock**: On an empty portfolio, an initial AAPL trade divided by itself ($15k / 15k = 100\% > 40\%$), locking out initial entries. | Single-position concentration (25% cap) acts as the primary gatekeeper during cold-start bootstrapping. |
+| D5 | **Conftest Mock Fixture Collision**: `mock_is_configured` leaked into live credentials tests, breaking integration tests. | Restored unmocked `is_configured` verification in `backend/tests/conftest.py`. |
+| D6 | **Autonomous Execution & Concurrency Risk**: No automated scheduler existed; running an unconstrained interval risk overlapping executions or trading when markets are closed. | Implemented `APScheduler` background service (`backend/app/scheduler.py`) with Alpaca `/v2/clock` market hours check, non-blocking atomic `_execution_lock`, working order deduping, and `/api/bot/*` REST/MCP endpoints. |
+
+---
+
 
 ## 1 · Fundamentals cache is ephemeral **and world-writable** — HIGH
 

@@ -25,6 +25,7 @@ DEFAULT_CONSEC_STOP_LOSSES = 3
 
 # OCC option symbol: root (1-6 alnum) + YYMMDD + C/P + 8-digit strike.
 _OCC_RE = re.compile(r"^[A-Z0-9]{1,6}\d{6}[CP]\d{8}$")
+_OCC_PARSE_RE = re.compile(r"^([A-Z0-9]{1,6})(\d{6})([CP])(\d{8})$")
 
 
 
@@ -80,16 +81,39 @@ def _is_short_option(position: dict) -> bool:
 
 
 def _overlay_collateral(positions: list[dict]) -> float:
-    """Sum collateral (fallback: |market_value|) across short-option positions."""
+    """Sum collateral across short-option positions.
+    
+    Uses explicit position collateral if present. If absent (as with raw Alpaca
+    positions), derives the actual underlying collateral (strike * 100 * contracts)
+    rather than option market value (which is a liability that decays toward zero
+    when profitable, causing inverted drawdown false halts).
+    """
     total = 0.0
     for p in positions:
         if not _is_short_option(p):
             continue
         raw = p.get("collateral")
-        if raw in (None, 0, 0.0):
-            raw = p.get("market_value") or 0
+        if raw not in (None, 0, 0.0):
+            try:
+                total += abs(float(raw))
+                continue
+            except (TypeError, ValueError):
+                pass
+        
+        # Derive underlying collateral from OCC symbol strike and contracts
+        symbol = str(p.get("symbol") or "")
+        m = _OCC_PARSE_RE.match(symbol)
+        if m:
+            try:
+                strike = float(m.group(4)) / 1000.0
+                qty = abs(float(p.get("qty") or p.get("quantity") or 1.0))
+                total += strike * 100.0 * qty
+                continue
+            except (TypeError, ValueError):
+                pass
+
         try:
-            total += abs(float(raw))
+            total += abs(float(p.get("market_value") or 0))
         except (TypeError, ValueError):
             continue
     return total

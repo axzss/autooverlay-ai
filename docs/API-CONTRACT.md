@@ -351,6 +351,134 @@ Rejects NaN/Infinity with `422` (finding S3 — these previously caused HTTP 500
 
 ---
 
+## `GET /api/bot/status`
+
+Returns the state of the background autonomous trading scheduler:
+
+```json
+{
+  "running": true,
+  "interval_hours": 1.0,
+  "autonomous_execution": false,
+  "enforce_market_hours": false,
+  "is_market_open": true,
+  "alpaca_configured": true,
+  "run_count": 12,
+  "last_run_at": "2026-09-01T15:00:00.000Z",
+  "next_run_at": "2026-09-01T16:00:00.000Z",
+  "last_error": null,
+  "last_result": {
+    "run_id": "bot-a1b2c3d4e5f6",
+    "mode": "live",
+    "halted": false,
+    "directives_count": 4,
+    "orders_evaluated": 2,
+    "orders_submitted": 2,
+    "orders_blocked": 0
+  }
+}
+```
+
+---
+
+## `POST /api/bot/start` & `POST /api/bot/stop`
+
+Controls the background scheduler process:
+
+```json
+// POST /api/bot/start
+{
+  "status": "started",
+  "message": "Autonomous bot scheduler started (interval: 1.0h, auto_execution: false)",
+  "bot": { "running": true, ... }
+}
+```
+
+---
+
+## `POST /api/bot/config`
+
+Dynamically updates scheduler parameters:
+
+```json
+// Request
+{
+  "interval_hours": 2.0,
+  "autonomous_execution": true
+}
+
+// Response
+{
+  "status": "updated",
+  "bot": {
+    "running": true,
+    "interval_hours": 2.0,
+    "autonomous_execution": true
+  }
+}
+```
+
+---
+
+## `POST /api/bot/cycle`
+
+Triggers an immediate on-demand autonomous cycle:
+
+```json
+// Response
+{
+  "status": "completed",
+  "result": {
+    "run_id": "bot-f4e3d2c1b0a9",
+    "mode": "live",
+    "halted": false,
+    "directives_count": 4,
+    "orders_evaluated": 2,
+    "orders_submitted": 0,
+    "orders_blocked": 0,
+    "summary": { "status": "completed", "executed_orders": [...] }
+  }
+}
+```
+
+---
+
+## `GET /api/bot/mcp/tools`
+
+Returns the native Model Context Protocol (MCP) tool manifest:
+
+```json
+{
+  "mcp_version": "2024-11-05",
+  "server_name": "autooverlay-ai-agent",
+  "server_version": "2.0.0",
+  "tools": [
+    {
+      "name": "run_autonomous_cycle",
+      "description": "Trigger an autonomous 7-step investment council cycle..."
+    },
+    {
+      "name": "get_bot_status",
+      "description": "Get current status of the autonomous background scheduler..."
+    },
+    {
+      "name": "get_portfolio_summary",
+      "description": "Inspect live portfolio equity, cash, and short options..."
+    },
+    {
+      "name": "screen_options_overlay",
+      "description": "Screen options overlay candidates for covered calls and CSPs..."
+    },
+    {
+      "name": "evaluate_risk_gate",
+      "description": "Run pre-trade risk evaluation against active positions..."
+    }
+  ]
+}
+```
+
+---
+
 ## Error handling
 
 | Status | Meaning | Frontend should |
@@ -374,6 +502,7 @@ on:
 curl -s http://localhost:8000/api/council/assess | python3 -m json.tool | head -40
 curl -s -X POST http://localhost:8000/api/agent/run \
      -H 'Content-Type: application/json' -d '{}' | python3 -m json.tool
+curl -s http://localhost:8000/api/bot/status | python3 -m json.tool
 ```
 
 The route source is the contract: `backend/app/routes/*.py`.

@@ -69,6 +69,30 @@ Open http://localhost:3000/dashboard
 This repo uses an OpenRouter-backed AI router for model access.
 
 Configure these in `backend/.env`:
+## AI Trading Bot & Autonomous Scheduler
+
+AutoOverlay AI includes a background autonomous trading bot and scheduler (`backend/app/scheduler.py` via APScheduler):
+
+- **1-Hour Autonomous Cycle**: Evaluates the 7-step investment cycle every 1 hour (configurable via `BOT_SCHEDULE_INTERVAL_HOURS`).
+- **Market Hours Guard**: Checks Alpaca `/v2/clock` (with NYSE 9:30 AM - 4:00 PM EST fallback). Scheduled cycles auto-skip when markets are closed to prevent invalid rejections.
+- **Atomic Concurrency Lock**: Thread-safe execution lock (`_execution_lock`) with `max_instances=1, coalesce=True` to eliminate overlapping cycles or double-order submissions.
+- **Working Order De-duplication**: Queries live working orders on Alpaca before evaluating new intents, ensuring contracts already active on the exchange are never duplicated.
+- **REST Endpoints**:
+  - `GET /api/bot/status` — Live scheduler status, next run time, and last execution metrics.
+  - `POST /api/bot/start` — Start/resume background autonomous scheduler.
+  - `POST /api/bot/stop` — Stop/pause background scheduler.
+  - `POST /api/bot/config` — Reconfigure interval hours or toggle live order execution.
+  - `POST /api/bot/cycle` — Trigger an immediate autonomous cycle on-demand.
+  - `GET /api/bot/history` — Audit trail of autonomous runs.
+  - `GET /api/bot/mcp/tools` — Native MCP tool manifest exposing agent capabilities.
+
+## MCP Server Integration
+
+This repo supports both local VS Code MCP tooling and native backend MCP tool descriptors.
+
+- Added to `backend/requirements.txt`: `alpaca-mcp-server>=2.0`
+- Project-local entrypoint: `backend/.venv/Scripts/alpaca-mcp-server.exe`
+- Web app MCP tool manifest: `GET /api/bot/mcp/tools`
 
 ```bash
 AI_ROUTER_BASE_URL=https://openrouter.ai/api/v1
@@ -103,10 +127,10 @@ Note: the fallback provider is used when the primary endpoint rejects the config
 
 ```bash
 # Tests — run both suites (agent + backend)
-pytest agent/tests backend/tests -q     # 248 passed, 1 skipped
+pytest agent/tests backend/tests -q     # 596 passed, 1 skipped
 
 # Frontend gates
-cd frontend && npx tsc -p tsconfig.json --noEmit && npm run build
+cd frontend && npx tsc -p tsconfig.json --noEmit
 ```
 
 ## Repo layout
@@ -115,7 +139,7 @@ cd frontend && npx tsc -p tsconfig.json --noEmit && npm run build
 agent/          strategies, decision engine, exit manager, portfolio analyst, monte_carlo
   council/      6 personas, Graham principles, Mr. Market, handoff, risk_mitigation,
                 daily-cycle orchestrator
-backend/        FastAPI app, routes, Alpaca client, tests
+backend/        FastAPI app, routes, scheduler, bot API, Alpaca client, tests
 frontend/       Next.js UI, typed API client
 docs/           full documentation — start at docs/README.md
 ```

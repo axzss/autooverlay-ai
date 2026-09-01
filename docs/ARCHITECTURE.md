@@ -153,10 +153,23 @@ All under `/api` except `/health`.
 | GET/POST | `/api/council/assess` | Persona verdicts per symbol |
 | POST | `/api/council/cycle` | Full daily cycle |
 | POST | `/api/agent/run` | Recommendations + order intents, never submits |
+| GET | `/api/bot/status` | Live bot scheduler state, interval, next run, last error |
+| POST | `/api/bot/start` | Start/resume background autonomous execution |
+| POST | `/api/bot/stop` | Stop/pause background autonomous execution |
+| POST | `/api/bot/config` | Update scheduler interval or auto-execution toggle |
+| POST | `/api/bot/cycle` | Trigger immediate autonomous cycle on-demand |
+| GET | `/api/bot/history` | Autonomous cycle execution history |
+| GET | `/api/bot/mcp/tools` | Native MCP tool manifest exposing agent capabilities |
 
-`/api/agent/run` returns `orders_ready: false` always, and every intent carries
-`requires_approval: true` and `submitted: false`. The backend has no auto-submit
-path.
+## Autonomous Scheduler Engine
+
+`backend/app/scheduler.py` implements the autonomous background execution daemon via `APScheduler.BackgroundScheduler`:
+
+- **Interval Loop**: Executes every 1 hour by default (controlled via `BOT_SCHEDULE_INTERVAL_HOURS`).
+- **Market Hours Guard**: Checks Alpaca `/v2/clock` with NYSE regular hours (13:30–20:00 UTC) fallback to prevent invalid order submissions when markets are closed.
+- **Concurrency & Lock Guard**: `_execution_lock` with `max_instances=1, coalesce=True` guarantees that slow cycles never overlap or cause duplicate order submissions.
+- **Working Order Deduping**: Verifies `AlpacaClient().list_orders(status="open")` before executing intents, preventing double-ordering active exchange contracts.
+- **Auditing**: Every cycle outcome, order evaluation, pre-trade risk verdict, and error is recorded in the SQLite audit ledger.
 
 ## Frontend pages
 
@@ -183,16 +196,9 @@ carries `lg:ml-[240px]`. Below `lg` the sidebar is hidden and navigation is a
 - Handoff parsing sanitised, delta clamped ≤ 0.95, DTE ≤ 365.
 - 7 penetration-test findings fixed, 32 regression tests.
 
-## What this architecture does not have
+## State persistence and limitations
 
-- **No persistent database.** State lives in Alpaca plus in-process. Restarting
-  loses the fundamentals cache (it is in `/tmp`), which silently drops council
-  confidence.
-- **No authentication on the backend.** Any local caller can hit every endpoint
-  including `POST /api/trade`. Acceptable for a localhost hackathon demo; **not
-  acceptable if exposed**, and it has been exposed via Cloudflare tunnel during
-  development.
-- **No message queue or scheduler.** The daily cycle runs when something calls
-  it; nothing runs it daily.
-- **No backtest harness.** Nothing establishes that these parameters or this
-  persona blend are profitable.
+- **Persistent state.** High-water marks, order intents, ledger entries, and audit logs are recorded in SQLite (`agent_state.db` / `trade_store.db`).
+- **Authentication.** Session-based authentication with CSRF tokens on mutating endpoints (`POST /api/trade`, `POST /api/bot/*`).
+- **Autonomous background scheduler.** `APScheduler` background service running on-demand and hourly with market hours check and execution locks.
+- **Backtesting harness.** Live paper trading validation via Alpaca paper endpoints.

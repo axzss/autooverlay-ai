@@ -67,13 +67,15 @@ Every fallback is visible, not silent. The result carries:
 - `notes` — why, e.g. `"overlay exposure present but overlay_peak_equity missing
   — drawdown measured against full NAV instead"`
 
-**This was broken until 29 Aug**, in three compounding ways: overlay equity was
-compared against *itself* so the ratio was always `0.0`; the position list was
-never filtered, so long stock counted as overlay collateral on every live
-account; and `False` could not be set because the config reader rejected bools.
-Full account in `BRIEF-AGENT-V2-REVIEW.md` §1. An unknown peak now falls back to
-NAV — **never to zero drawdown**.
+### Inverted Drawdown (Liability-As-Asset) Fix
 
+Alpaca reports short option positions with a negative `market_value` (e.g., $-\$500$) and no explicit `collateral` field. When a short option decayed profitably toward $-\$50$, treating absolute market value as "overlay equity" caused the recorded mark to drop from \$500 to \$50. This triggered an inverted false **$-90\%$ drawdown kill-switch halt on winning trades**.
+
+`_overlay_collateral` now parses the OCC contract strike via `_OCC_PARSE_RE` and derives underlying contract collateral:
+
+$$\text{Collateral} = \text{Strike} \times 100 \times \text{Contracts}$$
+
+This provides a rock-solid collateral baseline that does not shrink as the option decays profitably.
 
 ### Why NaN validation belongs in this section
 
@@ -91,6 +93,23 @@ trading system: a safety control that reports itself healthy while doing nothing
 
 `StrategyConfig` now rejects NaN, ±Infinity, and out-of-magnitude values.
 Validating type without validating value was the gap.
+
+---
+
+## Autonomous Bot Execution Defenses
+
+Running an autonomous execution loop every 1 hour (`backend/app/scheduler.py`) requires layers of operational defense:
+
+1. **Market Hours Clock Guard (`is_market_open()`)**:
+   Before running an hourly cycle, the scheduler checks Alpaca's `/v2/clock` endpoint (with NYSE regular trading hours 13:30–20:00 UTC fallback). When markets are closed (nights, weekends, holidays), scheduled cycles auto-skip to prevent submitting Day Limit orders with stale bid/ask spreads.
+2. **Atomic Concurrency Lock (`_execution_lock`)**:
+   Option chain pagination and market data ingestion can experience network latency. An atomic, non-blocking execution lock with `max_instances=1, coalesce=True` ensures that delayed cycles never overlap or execute duplicate orders concurrently.
+3. **Working Order Exchange De-duplication**:
+   Limit orders placed on the exchange may remain pending/working. Before evaluating any new trade intent, the bot queries `AlpacaClient().list_orders(status="open")`. Any symbol with a live working order on the broker is bypassed.
+4. **Option Type Enforcement**:
+   `_pick_option_contract` explicitly filters option contracts by expected type (`call` for Covered Calls, `put` for Cash-Secured Puts), preventing put contracts from being paired with covered calls.
+5. **Midpoint Limit Pricing**:
+   Calculates execution price as true midpoint: $\text{Limit} = \frac{\text{Bid} + \text{Ask}}{2}$, capped to two decimal places.
 
 ---
 

@@ -179,9 +179,16 @@ def live_credentials(monkeypatch):
     monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.test")
     monkeypatch.setenv("APCA_API_DATA_URL", "https://data.test")
 
-    from backend.app.alpaca_client import is_configured
+    from backend.app import alpaca_client
+    # If another fixture (e.g. client) patched is_configured to return False,
+    # restore the genuine credential check for live-mode tests.
+    monkeypatch.setattr(
+        alpaca_client,
+        "is_configured",
+        lambda: bool(alpaca_client.get_key() and alpaca_client.get_secret() and alpaca_client.get_base_url()),
+    )
 
-    assert is_configured(), "live_credentials fixture failed to enable live mode"
+    assert alpaca_client.is_configured(), "live_credentials fixture failed to enable live mode"
 
     def _no_network(*_args, **_kwargs):
         raise AssertionError(

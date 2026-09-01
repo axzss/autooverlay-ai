@@ -203,6 +203,18 @@ class PortfolioAnalyst:
         in_group = sym in group
         group_projected = group_now + (collateral_required if in_group else 0.0)
         deployed_projected = deployed_now + float(collateral_required)
+        if deployed_now <= 0.0:
+            # Cold-start bootstrapping: When no other overlays are active,
+            # single-ticker concentration (25% cap) already gates entry size.
+            # Avoid self-division 100% deadlock on initial overlay.
+            ok = True
+            frac = 1.0
+            trace = [
+                f"council sector-cap check ({'+'.join(sorted(group))}): "
+                f"initial overlay bootstrapping (single-position concentration applies) ✓",
+            ]
+            return ok, trace
+
         frac = (group_projected / deployed_projected
                 if deployed_projected > 0 else 0.0)
         ok = frac <= self.max_sector_concentration + 1e-9
