@@ -9,3 +9,4 @@ httpx>=0.26
 requests>=2.31
 pytest>=8.0
 alpaca-mcp-server>=2.0
+apscheduler>=3.10

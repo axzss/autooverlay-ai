@@ -553,6 +553,40 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+  getBotStatus: () => request<BotStatusResponse>('/api/bot/status'),
+  startBot: () =>
+    request<{ status: string; message: string; bot: BotStatusResponse }>('/api/bot/start', {
+      method: 'POST',
+    }),
+  stopBot: () =>
+    request<{ status: string; message: string; bot: BotStatusResponse }>('/api/bot/stop', {
+      method: 'POST',
+    }),
+  configureBot: (body: { interval_hours?: number; autonomous_execution?: boolean }) =>
+    request<{ status: string; bot: BotStatusResponse }>('/api/bot/config', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  triggerBotCycle: () =>
+    request<{ status: string; result: Record<string, unknown> }>('/api/bot/cycle', {
+      method: 'POST',
+    }),
+  getBotMcpTools: () =>
+    request<{ mcp_version: string; server_name: string; tools: Array<Record<string, unknown>> }>(
+      '/api/bot/mcp/tools',
+    ),
+}
+
+export interface BotStatusResponse {
+  running: boolean
+  interval_hours: number
+  autonomous_execution: boolean
+  alpaca_configured: boolean
+  run_count: number
+  last_run_at: string | null
+  next_run_at: string | null
+  last_error: string | null
+  last_result?: Record<string, unknown> | null
 }
 
 export interface PortfolioSnapshot {

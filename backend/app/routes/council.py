@@ -328,7 +328,6 @@ def _fetch_live_portfolio() -> tuple[List[dict], List[dict], dict]:
     positions = [p for p in raw_positions if (
         isinstance(p, dict)
         and p.get("asset_class") != "us_option"
-        and str(p.get("symbol", "")).upper() != "SPY"
     )]
     open_option_positions = [
         normalized for normalized in (

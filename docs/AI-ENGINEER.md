@@ -111,9 +111,9 @@ as though it were implementation is worse than no document.
      classification, tier policy handoff. Monte Carlo is **not** part of this
      path — see §1C.
 4. **Layer 4: Execution Contract Resolver — BACKEND-OWNED, BUILT**
-   - `backend/app/routes/agent.py` resolves OCC contracts; `backend/app/risk/`
-     runs nine pre-trade checks and `backend/app/store/` records every attempt.
-     `order_executor.py` in this layer constructs orders but never submits them.
+   - `backend/app/routes/agent.py` resolves OCC contracts with explicit option type (`call` vs `put`) filtering and midpoint limit pricing. `backend/app/risk/` runs nine pre-trade checks.
+5. **Layer 5: Autonomous AI Trading Bot & Scheduler (`backend/app/scheduler.py`, `backend/app/routes/bot.py`) — BUILT**
+   - Hourly autonomous execution daemon with market hours guard (`is_market_open()`), atomic non-blocking concurrency lock (`_execution_lock`), exchange working-order de-duplication, SQLite audit persistence, and native MCP tool manifest (`GET /api/bot/mcp/tools`).
 
 **Not built, on the roadmap:** portfolio Greeks caps (W3), behavioural replay
 (W2), IV rank (W8), signed council handoff (W6).
