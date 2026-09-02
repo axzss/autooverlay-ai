@@ -15,7 +15,25 @@ type StrategyParams = {
   dte_max: number
   max_concentration_pct: number
   min_cash_reserve_pct: number
+  // Scalping mode — mirrors StrategyConfigModel in backend/app/routes/strategy.py.
+  // These were rendered and sent in the PUT body but missing from the type, so
+  // `next build` failed on DEFAULTS and the two safeguard fields were never
+  // seeded (the backend requires scalp_max_daily_loss_pct).
+  scalp_mode: boolean
+  scalp_min_dte: number
+  scalp_max_dte: number
+  scalp_delta_min: number
+  scalp_delta_max: number
+  scalp_target_pct: number
+  scalp_stop_mult: number
+  scalp_max_daily_trades: number
+  scalp_max_daily_loss_pct: number
 }
+
+/** Keys whose value is numeric — the only ones the slider/number inputs may set. */
+type NumericParamKey = {
+  [K in keyof StrategyParams]: StrategyParams[K] extends number ? K : never
+}[keyof StrategyParams]
 
 const DEFAULTS: StrategyParams = {
   take_profit_pct: 0.6,
@@ -35,6 +53,8 @@ const DEFAULTS: StrategyParams = {
   scalp_delta_max: 0.5,
   scalp_target_pct: 0.25,
   scalp_stop_mult: 1.2,
+  scalp_max_daily_trades: 6,
+  scalp_max_daily_loss_pct: 1.5,
 }
 
 export default function StrategyConfigCard() {
@@ -63,7 +83,7 @@ export default function StrategyConfigCard() {
     return () => { cancelled = true }
   }, [])
 
-  const set = (key: keyof StrategyParams) =>
+  const set = (key: NumericParamKey) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const num = parseFloat(e.target.value)
       setSaved(false)

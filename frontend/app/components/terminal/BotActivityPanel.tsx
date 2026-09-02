@@ -147,7 +147,10 @@ export default function BotActivityPanel() {
 }
 
 function RunRow({ item }: { item: BotHistoryItem }) {
-  const summaryStatus = String(item.summary?.status ?? '')
+  // item is Record<string, unknown>, so `summary` arrives as unknown — reading
+  // .status straight off it fails the production type-check. Narrow first.
+  const summary = (item.summary ?? {}) as Record<string, unknown>
+  const summaryStatus = String(summary.status ?? '')
   const errorText = String(item.error ?? '')
   const halted = Boolean(item.halted)
   const skipReason = String(item.reason ?? '')
