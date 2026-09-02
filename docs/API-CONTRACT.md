@@ -369,6 +369,11 @@ Returns the state of the background autonomous trading scheduler. When
 `BOT_AUTONOMOUS_ENABLED=true`, the scheduler auto-starts on backend startup
 and fires one immediate cycle, so `run_count` increments without user action.
 
+If two consecutive cycles end in `halted`, `skipped`, or `error` with
+zero evaluations, a circuit breaker opens for 30 minutes and further cycles
+are skipped until the cooldown expires. The coordinator now exposes that state
+directly in the status response.
+
 ```json
 {
   "running": true,
@@ -393,9 +398,43 @@ and fires one immediate cycle, so `run_count` increments without user action.
       "status": "completed",
       "executed_orders": []
     }
+  },
+  "circuit_breaker": {
+    "open": false,
+    "until": null,
+    "consecutive_failures": 0,
+    "last_failure_category": null,
+    "last_failure_reason": null
+  },
+  "last_alert": null
+}
+```
+
+When the breaker is open, the response looks like:
+
+```json
+{
+  "running": true,
+  "autonomous_execution": true,
+  ...
+  "circuit_breaker": {
+    "open": true,
+    "until": "2026-09-02T16:51:00.000Z",
+    "consecutive_failures": 2,
+    "last_failure_category": "zero_evaluation",
+    "last_failure_reason": "no_DIRECTIVES_GENERATED"
+  },
+  "last_alert": {
+    "created_at": "2026-09-02T16:21:00.000Z",
+    "category": "zero_evaluation",
+    "reason": "no_DIRECTIVES_GENERATED",
+    "consecutive_failures": 2
   }
 }
 ```
+
+`last_alert` and `circuit_breaker` are optional; older responses that lack them
+remain valid for clients that ignore unknown fields.
 
 ---
 
