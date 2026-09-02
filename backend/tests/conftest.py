@@ -78,7 +78,7 @@ def client():
 
         # Authenticate so tests against protected routes (trade, strategy PUT)
         # do not 401. Uses the hardcoded demo credentials from backend/app/auth.py.
-        login_resp = c.post("/api/auth/login", json={"username": "ADIT_IT_BOYS", "password": "ADIT_HATERS_99"})
+        login_resp = c.post("/api/auth/login", json={"username": "DitJiZak_IT_BOYS", "password": "alpacaitboys"})
         assert login_resp.status_code == 200, "demo credentials must work in tests"
         csrf = login_resp.json()["csrf_token"]
         cookie = login_resp.headers.get("set-cookie", "")

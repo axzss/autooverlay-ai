@@ -2,7 +2,7 @@
 Simple session-based authentication for AutoOverlay AI.
 
 Security model:
-- Single hardcoded user: ADIT_IT_BOYS / ADIT_HATERS_99 (hackathon scope)
+- Single hardcoded user: DitJiZak_IT_BOYS / alpacaitboys (hackathon scope)
 - Session cookie: HttpOnly, Secure (when HTTPS), SameSite=Lax, 24h TTL
 - CSRF: Double-submit cookie pattern for mutating endpoints
 - Login rate-limited: 5 attempts per minute per IP
@@ -24,9 +24,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 # ──────────────────────────────────────────────────────────────────────────
 # Credentials (hardcoded for hackathon — do not commit real secrets)
 # ──────────────────────────────────────────────────────────────────────────
-VALID_USERNAME = "ADIT_IT_BOYS"
+VALID_USERNAME = "DitJiZak_IT_BOYS"
 VALID_PASSWORD_HASH = hashlib.pbkdf2_hmac(
-    "sha256", b"ADIT_HATERS_99", b"autooverlay-salt-2026", 100_000
+    "sha256", b"alpacaitboys", b"autooverlay-salt-2026", 100_000
 ).hex()
 
 # ──────────────────────────────────────────────────────────────────────────

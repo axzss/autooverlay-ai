@@ -51,8 +51,8 @@ test.describe('Auth gates', () => {
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
     await expect(page.locator('h1')).toContainText('AutoOverlay AI')
 
-    await page.fill('input#username', 'ADIT_IT_BOYS')
-    await page.fill('input#password', 'ADIT_HATERS_99')
+    await page.fill('input#username', 'DitJiZak_IT_BOYS')
+    await page.fill('input#password', 'alpacaitboys')
     await page.click('button[type="submit"]')
 
     // Should redirect to dashboard after successful login
@@ -66,8 +66,8 @@ test.describe('Auth gates', () => {
     // workers=1, this attempt will count. The rate-limiting test at the end
     // waits 65s for the window to reset before firing its own 5 attempts.
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await page.fill('input#username', 'ADIT_IT_BOYS')
-    await page.fill('input#password', 'WRONG_PASSWORD')
+    await page.fill('input#username', 'DitJiZak_IT_BOYS')
+    await page.fill('input#password', 'WRONG')
     await page.click('button[type="submit"]')
 
     // Should show error, stay on login page
@@ -99,15 +99,15 @@ test.describe('Auth gates', () => {
     // other tests — the 5/min limiter is in-process and shared across the
     // worker, so we add a brief backoff if needed.
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await page.fill('input#username', 'ADIT_IT_BOYS')
-    await page.fill('input#password', 'ADIT_HATERS_99')
+    await page.fill('input#username', 'DitJiZak_IT_BOYS')
+    await page.fill('input#password', 'alpacaitboys')
     await page.click('button[type="submit"]')
     const loginRes = await page.waitForResponse((r) => r.url().includes('/api/auth/login'), { timeout: 15_000 })
     // If rate-limited, wait for the window to reset and retry
     if (loginRes.status() === 429) {
       await page.waitForTimeout(65_000)
-      await page.fill('input#username', 'ADIT_IT_BOYS')
-      await page.fill('input#password', 'ADIT_HATERS_99')
+      await page.fill('input#username', 'DitJiZak_IT_BOYS')
+      await page.fill('input#password', 'alpacaitboys')
       await page.click('button[type="submit"]')
     }
     await page.waitForURL('**/dashboard', { timeout: 15_000 })
@@ -130,15 +130,15 @@ test.describe('Auth gates', () => {
   test('CSRF required for mutating endpoints', async ({ page }) => {
     // Login via form so AuthProvider's syncCsrf stores the token in module state
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await page.fill('input#username', 'ADIT_IT_BOYS')
-    await page.fill('input#password', 'ADIT_HATERS_99')
+    await page.fill('input#username', 'DitJiZak_IT_BOYS')
+    await page.fill('input#password', 'alpacaitboys')
     await page.click('button[type="submit"]')
     // If rate-limited, wait for the window to reset and retry
     const loginRes = await page.waitForResponse((r) => r.url().includes('/api/auth/login'), { timeout: 15_000 })
     if (loginRes.status() === 429) {
       await page.waitForTimeout(65_000)
-      await page.fill('input#username', 'ADIT_IT_BOYS')
-      await page.fill('input#password', 'ADIT_HATERS_99')
+      await page.fill('input#username', 'DitJiZak_IT_BOYS')
+      await page.fill('input#password', 'alpacaitboys')
       await page.click('button[type="submit"]')
     }
     await page.waitForURL('**/dashboard', { timeout: 15_000 })
@@ -175,15 +175,15 @@ test.describe('Auth gates', () => {
   test('session persists across navigation', async ({ page }) => {
     // Login via form so AuthProvider picks up the session
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await page.fill('input#username', 'ADIT_IT_BOYS')
-    await page.fill('input#password', 'ADIT_HATERS_99')
+    await page.fill('input#username', 'DitJiZak_IT_BOYS')
+    await page.fill('input#password', 'alpacaitboys')
     await page.click('button[type="submit"]')
     // If rate-limited, wait for the window to reset and retry
     const loginRes = await page.waitForResponse((r) => r.url().includes('/api/auth/login'), { timeout: 15_000 })
     if (loginRes.status() === 429) {
       await page.waitForTimeout(65_000)
-      await page.fill('input#username', 'ADIT_IT_BOYS')
-      await page.fill('input#password', 'ADIT_HATERS_99')
+      await page.fill('input#username', 'DitJiZak_IT_BOYS')
+      await page.fill('input#password', 'alpacaitboys')
       await page.click('button[type="submit"]')
     }
     await page.waitForURL('**/dashboard', { timeout: 15_000 })
@@ -242,7 +242,7 @@ test.describe('Auth gates', () => {
     await expect(page.locator('a:has-text("Sign In")')).not.toBeVisible()
 
     // Username should be in header
-    await expect(page.locator('text=ADIT_IT_BOYS')).toBeVisible()
+    await expect(page.locator('text=DitJiZak_IT_BOYS')).toBeVisible()
   })
 
   test('rate limiting on login endpoint', async ({ page }) => {
@@ -256,7 +256,7 @@ test.describe('Auth gates', () => {
     // Space them out to ensure the rate limiter counts each one.
     for (let i = 0; i < 5; i++) {
       await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-      await page.fill('input#username', 'ADIT_IT_BOYS')
+      await page.fill('input#username', 'DitJiZak_IT_BOYS')
       await page.fill('input#password', 'WRONG')
       await page.click('button[type="submit"]')
       // Wait for the error message to confirm the attempt was processed
@@ -267,7 +267,7 @@ test.describe('Auth gates', () => {
 
     // 6th attempt should be rate limited
     await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-    await page.fill('input#username', 'ADIT_IT_BOYS')
+    await page.fill('input#username', 'DitJiZak_IT_BOYS')
     await page.fill('input#password', 'WRONG')
     await page.click('button[type="submit"]')
 

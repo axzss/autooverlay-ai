@@ -2,7 +2,7 @@
 
 ```bash
 pytest agent/tests backend/tests -q
-# 596 passed, 1 skipped  (597 collected)
+# 705 passed, 1 skipped  (706 collected)
 ```
 
 ## Python Unit & Integration Test Suites
@@ -10,6 +10,8 @@ pytest agent/tests backend/tests -q
 - **Agent Layer Tests (`agent/tests`)**: 115 passed — Council engine, 6 personas, Graham principles, Mr. Market, handoff policies, risk mitigation kill-switch, peak store, daily cycle.
 - **Backend Core Tests (`backend/tests`)**: 473 passed — API routes, Alpaca client adapters, risk gates, option picker delta bands, preflight checks, ledger store.
 - **AI Trading Bot & Scheduler Tests (`backend/tests/test_bot_scheduler.py`)**: 8 passed — Autonomous 1-hour background scheduler, start/stop transitions, dynamic reconfiguration, mock cycle execution, REST bot routes, and MCP tool manifest generation.
+- **Adversarial Concurrency & Stress Challenge Suite (`backend/tests/test_challenger1_concurrency.py`)**: 37 passed — 100-thread concurrent execution lock stress, exception lock release recovery, multi-threaded lifecycle stress, and market hours boundary gates.
+- **Empirical Stress Challenge Suite (`backend/tests/test_challenger2_empirical.py`)**: 72 passed — Options snapshot pagination limits, OCC strike regex boundary parsing, rate-limit backoff behavior, and edge-case execution.
 
 ```bash
 cd frontend

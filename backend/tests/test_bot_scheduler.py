@@ -49,6 +49,7 @@ def test_bot_scheduler_execute_cycle_mock(monkeypatch):
     result = scheduler.execute_cycle(manual=True)
 
     assert isinstance(result, dict)
+    assert result.get("error") is None
     assert "run_id" in result
     assert result["run_id"].startswith("bot-")
     assert "mode" in result
@@ -92,6 +93,7 @@ def test_bot_cycle_route(client):
     assert data["status"] == "completed"
     assert "result" in data
     assert "run_id" in data["result"]
+    assert data["result"].get("error") is None
 
 
 def test_bot_config_route(client):

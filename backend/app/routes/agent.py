@@ -14,7 +14,7 @@ from ..adapters.options import normalize_snapshot, parse_occ
 from ..alpaca_client import AlpacaAPIError, AlpacaClient, is_configured
 from ..auth import get_current_user, get_session_id, require_csrf
 from .council import CouncilCycleRequest, council_cycle
-from .strategy import _active_config
+from .strategy import _active_config, _active_strategy_config
 
 router = APIRouter()
 

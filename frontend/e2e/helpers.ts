@@ -130,8 +130,8 @@ export function agentStatusCard(page: Page) {
 const isAgentRun = (url: string) => url.includes('/api/agent/run')
 
 /** Demo credentials — hardcoded in backend/app/auth.py for hackathon scope. */
-export const DEMO_USER = 'ADIT_IT_BOYS'
-export const DEMO_PASS = 'ADIT_HATERS_99'
+export const DEMO_USER = 'DitJiZak_IT_BOYS'
+export const DEMO_PASS = 'alpacaitboys'
 
 /**
  * Authenticates as the demo user so that auth-gated routes (POST /api/agent/run,
@@ -164,7 +164,7 @@ export async function authenticateDemoUser(page: Page): Promise<string> {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'ADIT_IT_BOYS', password: 'ADIT_HATERS_99' }),
+      body: JSON.stringify({ username: 'DitJiZak_IT_BOYS', password: 'alpacaitboys' }),
     })
     if (!res.ok) throw new Error(`login failed: ${res.status}`)
     const body = await res.json()

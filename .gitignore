@@ -33,4 +33,5 @@ backend/.cache/
 # Agent runtime state: kill-switch high-water marks, fundamentals cache.
 # Machine-local and account-specific; a shared peak mark is meaningless.
 docs/.cache/
+.agents/
 

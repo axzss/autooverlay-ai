@@ -35,6 +35,12 @@ from agent.decision_engine import DecisionEngine  # noqa: E402
 _active_config = StrategyConfig.from_env()
 
 
+def _active_strategy_config() -> StrategyConfig:
+    """Return the currently active strategy configuration singleton."""
+    return _active_config
+
+
+
 class StrategyConfigModel(BaseModel):
     # Security: reject NaN/Infinity outright at parse time (raw-JSON bodies can
     # smuggle them past httpx-level checks); they previously flowed into
