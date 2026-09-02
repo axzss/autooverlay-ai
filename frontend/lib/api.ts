@@ -591,6 +591,19 @@ export interface BotStatusResponse {
   next_run_at: string | null
   last_error: string | null
   last_result?: Record<string, unknown> | null
+  circuit_breaker?: {
+    open: boolean
+    until: string | null
+    consecutive_failures: number
+    last_failure_category: string | null
+    last_failure_reason: string | null
+  }
+  last_alert?: {
+    created_at: string
+    category: string
+    reason: string
+    consecutive_failures: number
+  } | null
 }
 
 export interface PortfolioSnapshot {

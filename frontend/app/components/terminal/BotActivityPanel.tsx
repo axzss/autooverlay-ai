@@ -38,6 +38,7 @@ export default function BotActivityPanel() {
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [loadingLogs, setLoadingLogs] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<Record<string, any> | null>(null)
   const logScrollRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -50,13 +51,15 @@ export default function BotActivityPanel() {
     let cancelled = false
     async function load() {
       try {
-        const [h, l] = await Promise.all([
+        const [h, l, s] = await Promise.all([
           api.getBotHistory(20),
           api.getBotLogs(80, 'INFO'),
+          api.getBotStatus().catch(() => null),
         ])
         if (!cancelled) {
           setHistory(h.history ?? [])
           setLogs(l.entries ?? [])
+          setStatus(s)
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load bot activity')
@@ -144,9 +147,19 @@ export default function BotActivityPanel() {
 }
 
 function RunRow({ item }: { item: BotHistoryItem }) {
-  const status = String(item.summary?.status ?? item.error ? 'error' : 'unknown')
+  const summaryStatus = String(item.summary?.status ?? '')
+  const errorText = String(item.error ?? '')
+  const halted = Boolean(item.halted)
+  const skipReason = String(item.reason ?? '')
   const mode = String(item.mode ?? 'unknown')
-  const reason = String(item.error ?? item.summary?.status ?? '')
+
+  let status = 'unknown'
+  if (errorText || summaryStatus === 'error') status = 'error'
+  else if (halted || summaryStatus === 'halted') status = 'halted'
+  else if (skipReason || summaryStatus === 'skipped') status = 'skipped'
+  else if (summaryStatus === 'completed') status = 'completed'
+
+  const reason = [errorText, skipReason].filter(Boolean).join(' | ') || summaryStatus
   const started = item.started_at ? new Date(String(item.started_at)).toLocaleTimeString() : '—'
   const submitted = Number(item.orders_submitted ?? 0)
   const blocked = Number(item.orders_blocked ?? 0)

@@ -63,6 +63,19 @@ export default function BotSchedulerCard() {
     }
   }
 
+  const resumeAfterCooldown = async () => {
+    setError(null)
+    setActionLoading('cycle')
+    try {
+      await api.triggerBotCycle()
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to resume cycle')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const nextIn = (() => {
     if (!status?.next_run_at) return null
     const next = new Date(status.next_run_at).getTime()
@@ -138,13 +151,13 @@ export default function BotSchedulerCard() {
           <Stat label="Running" value={status?.running ? 'ON' : 'OFF'} ok={status?.running} />
           <button
             onClick={() => setAutoExecute(!(status?.autonomous_execution ?? false))}
-            disabled={actionLoading === 'cycle' || autoSaving}
+            disabled={actionLoading === 'cycle' || autoSaving || Boolean(status?.circuit_breaker?.open)}
             className="rounded border border-[#1e293b] bg-[#020617] px-2 py-1.5 flex items-center justify-between text-left disabled:opacity-50"
           >
             <span className="text-[#94a3b8]">Auto execute</span>
-            <span className={`flex items-center gap-1 font-mono ${status?.autonomous_execution ? 'text-[#22c55e]' : 'text-[#f87171]'}`}>
-              {autoSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : status?.autonomous_execution ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
-              {status?.autonomous_execution ? 'ON' : 'OFF'}
+            <span className={`flex items-center gap-1 font-mono ${status?.autonomous_execution && !status?.circuit_breaker?.open ? 'text-[#22c55e]' : 'text-[#f87171]'}`}>
+              {autoSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : status?.autonomous_execution && !status?.circuit_breaker?.open ? <ToggleRight className="h-3.5 w-3.5" /> : <ToggleLeft className="h-3.5 w-3.5" />}
+              {status?.circuit_breaker?.open ? 'BREAKER' : status?.autonomous_execution ? 'ON' : 'OFF'}
             </span>
           </button>
           <Stat label="Mode" value={status?.alpaca_configured ? 'Live' : 'Mock'} ok={status?.alpaca_configured} />
@@ -152,6 +165,31 @@ export default function BotSchedulerCard() {
           <Stat label="Last run" value={status?.last_run_at ? new Date(status.last_run_at).toLocaleString() : '—'} />
           <Stat label="Next run" value={status?.next_run_at ? `${new Date(status.next_run_at).toLocaleTimeString()} (${nextIn ?? '—'})` : '—'} />
         </div>
+      )}
+
+      {status?.circuit_breaker?.open && (
+        <p className="flex items-center gap-2 rounded border border-[#f59e0b]/40 bg-[#451a03] px-3 py-2 text-xs text-[#fbbf24]">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          Circuit breaker open: {status.circuit_breaker.last_failure_category ?? 'unknown'} — {status.circuit_breaker.last_failure_reason ?? ''}
+          {status.circuit_breaker.until ? ` until ${new Date(status.circuit_breaker.until).toLocaleTimeString()}` : ''}
+        </p>
+      )}
+
+      {status?.circuit_breaker?.open && status?.circuit_breaker?.until && new Date(status.circuit_breaker.until) <= new Date() && (
+        <button
+          onClick={() => resumeAfterCooldown()}
+          disabled={actionLoading === 'cycle'}
+          className="w-full rounded border border-[#22c55e]/50 bg-[#052e16] px-2 py-1.5 text-[10px] font-semibold text-[#22c55e] hover:bg-[#0a3318] disabled:opacity-50"
+        >
+          {actionLoading === 'cycle' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+          Resume after cooldown
+        </button>
+      )}
+
+      {status?.last_alert && (
+        <p className="flex items-center gap-2 rounded border border-[#f59e0b]/40 bg-[#451a03] px-3 py-2 text-[10px] text-[#fbbf24]">
+          Last alert: {status.last_alert.category} | {status.last_alert.reason} | consecutive failures: {String(status.last_alert.consecutive_failures ?? 0)}
+        </p>
       )}
 
       {status?.last_error && (

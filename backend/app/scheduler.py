@@ -15,12 +15,13 @@ Manages scheduled hourly autonomous cycle execution:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 import threading
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -120,6 +121,13 @@ class BotScheduler:
         self._scalp_daily_loss = 0.0
         self._scalp_last_date = datetime.now(timezone.utc).date()
 
+        self._consecutive_failures = 0
+        self._last_failure_reason: Optional[str] = None
+        self._last_failure_category: Optional[str] = None
+        self._circuit_breaker_open = False
+        self._circuit_breaker_until: Optional[datetime] = None
+        self._alert_events: deque[Dict[str, Any]] = deque(maxlen=20)
+
     @property
     def is_running(self) -> bool:
         return self._is_running
@@ -167,6 +175,9 @@ class BotScheduler:
             if job and job.next_run_time:
                 next_run = job.next_run_time.astimezone(timezone.utc).isoformat()
 
+            self._refresh_circuit_breaker()
+            last_alert = self._alert_events[-1] if self._alert_events else None
+
             return {
                 "running": self._is_running,
                 "interval_hours": self._interval_hours,
@@ -179,6 +190,14 @@ class BotScheduler:
                 "next_run_at": next_run,
                 "last_error": self._last_error,
                 "last_result": self._last_result.to_dict() if self._last_result else None,
+                "circuit_breaker": {
+                    "open": self._circuit_breaker_open,
+                    "until": self._circuit_breaker_until.isoformat() if self._circuit_breaker_until else None,
+                    "consecutive_failures": self._consecutive_failures,
+                    "last_failure_category": self._last_failure_category,
+                    "last_failure_reason": self._last_failure_reason,
+                },
+                "last_alert": last_alert,
             }
 
     def get_history(self) -> List[Dict[str, Any]]:
@@ -198,10 +217,7 @@ class BotScheduler:
                 self._interval_hours,
                 self._autonomous_execution,
             )
-            # Fire one immediate cycle on startup so the bot is useful without
-            # requiring the user to click Run Now.
             if self._auto_start:
-                import threading
                 threading.Thread(target=self.execute_cycle, kwargs={"manual": True}, daemon=True).start()
 
     def stop(self) -> None:
@@ -253,13 +269,76 @@ class BotScheduler:
         self._scalp_daily_trades += 1
         self._scalp_daily_loss += pnl_change
 
+    def _refresh_circuit_breaker(self) -> None:
+        if not self._circuit_breaker_open:
+            return
+        if self._circuit_breaker_until and datetime.now(timezone.utc) >= self._circuit_breaker_until:
+            self._circuit_breaker_open = False
+            self._circuit_breaker_until = None
+            self._consecutive_failures = 0
+            self._last_failure_category = None
+            self._last_failure_reason = None
+            logger.info("Circuit breaker closed; resuming scheduler.")
+
+    def _open_circuit_breaker(self, reason: str, category: str) -> None:
+        self._circuit_breaker_open = True
+        self._circuit_breaker_until = datetime.now(timezone.utc) + timedelta(minutes=30)
+        self._last_failure_category = category
+        self._last_failure_reason = reason
+        self._alert_events.append({
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "category": category,
+            "reason": reason,
+            "consecutive_failures": self._consecutive_failures,
+        })
+        logger.error("Circuit breaker OPEN: %s | %s", category, reason)
+
+    def _classify_cycle_failure(self, result: Dict[str, Any]) -> tuple[str, str]:
+        if result.get("halted"):
+            return "halted", "; ".join(result.get("halt_reasons", [])) or "cycle halted"
+        reason = result.get("error") or result.get("summary", {}).get("status") or "cycle error"
+        if result.get("orders_evaluated") == 0 and result.get("orders_submitted") == 0:
+            return "zero_evaluation", reason
+        return "execution", reason
+
+    def _record_result(self, result: BotExecutionResult) -> None:
+        with self._lock:
+            self._run_count += 1
+            self._last_run_time = datetime.now(timezone.utc)
+            self._last_result = result
+            self._last_error = result.error
+
+            if result.error or result.summary.get("status") in {"halted", "skipped"}:
+                category, reason = self._classify_cycle_failure(result.to_dict())
+                self._consecutive_failures += 1
+                self._last_failure_category = category
+                self._last_failure_reason = reason
+                if self._consecutive_failures >= 2:
+                    self._open_circuit_breaker(reason, category)
+            else:
+                self._consecutive_failures = 0
+                self._last_failure_category = None
+                self._last_failure_reason = None
+
+            self._history.append(result.to_dict())
+
+    def _log_zero_evaluation_diagnostic(self, result: Dict[str, Any]) -> None:
+        if result.get("orders_evaluated", 0) == 0 and result.get("orders_submitted", 0) == 0:
+            logger.error(
+                "Zero-evaluation diagnostic run_id=%s mode=%s status=%s error=%s halt_reasons=%s",
+                result.get("run_id"),
+                result.get("mode"),
+                result.get("summary", {}).get("status"),
+                result.get("error"),
+                result.get("halt_reasons"),
+            )
+
     def execute_cycle(self, manual: bool = False) -> Dict[str, Any]:
         """Execute one complete autonomous cycle through the full pipeline."""
         start_moment = datetime.now(timezone.utc)
         run_id = f"bot-{uuid4().hex[:12]}"
         logger.info("Cycle queued run_id=%s manual=%s", run_id, manual)
 
-        # Prevent overlapping cycle execution
         if not self._execution_lock.acquire(blocking=False):
             logger.warning("Cycle skipped: previous run still active run_id=%s", run_id)
             return {
@@ -279,6 +358,17 @@ class BotScheduler:
                     "started_at": start_moment.isoformat(),
                 }
 
+            if self._circuit_breaker_open:
+                self._refresh_circuit_breaker()
+                if self._circuit_breaker_open:
+                    logger.warning("Cycle skipped: circuit breaker open run_id=%s", run_id)
+                    return {
+                        "status": "skipped",
+                        "reason": "circuit_breaker_open",
+                        "run_id": run_id,
+                        "started_at": start_moment.isoformat(),
+                    }
+
             logger.info("Cycle started run_id=%s manual=%s", run_id, manual)
 
             store = get_store()
@@ -292,17 +382,13 @@ class BotScheduler:
             from .routes.agent import _order_intents
             from .routes.strategy import _active_strategy_config
 
-            # 1. Run the daily council cycle
             cycle_req = CouncilCycleRequest()
-            # Run async council_cycle safely whether in a running event loop thread or worker thread
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = None
 
             if loop is not None and loop.is_running():
-                import concurrent.futures
-
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                     cycle = pool.submit(asyncio.run, council_cycle(cycle_req)).result(timeout=60.0)
             else:
@@ -312,13 +398,18 @@ class BotScheduler:
             halt_reasons = list(cycle.get("halt_reasons", []))
             directives = list(cycle.get("directives", []))
 
-            # 2. If halted, record halt audit and return
             if halted:
                 store.record_audit(
                     route="BOT /scheduler/cycle",
                     action="autonomous_cycle",
                     outcome="halted",
                     detail={"run_id": run_id, "reasons": halt_reasons},
+                )
+                logger.info(
+                    "Cycle halted run_id=%s reasons=%s directives=%d",
+                    run_id,
+                    halt_reasons,
+                    len(directives),
                 )
                 res = BotExecutionResult(
                     run_id=run_id,
@@ -336,7 +427,29 @@ class BotScheduler:
                 self._record_result(res)
                 return res.to_dict()
 
-            # 3. Generate and evaluate concrete order intents
+            # Validate directives generated
+            if not directives:
+                logger.warning(
+                    "Cycle produced no directives run_id=%s mode=%s",
+                    run_id,
+                    mode,
+                )
+                res = BotExecutionResult(
+                    run_id=run_id,
+                    started_at=start_moment.isoformat(),
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    mode=mode,
+                    halted=False,
+                    halt_reasons=["no_directives_generated"],
+                    directives_count=0,
+                    orders_evaluated=0,
+                    orders_submitted=0,
+                    orders_blocked=0,
+                    summary={"status": "no_directives", "cycle": cycle},
+                )
+                self._record_result(res)
+                return res.to_dict()
+
             intents = _order_intents(directives)
             config = _active_strategy_config()
             snapshot = fetch_snapshot(config=config)
@@ -350,8 +463,6 @@ class BotScheduler:
                     orders_blocked += 1
                     continue
 
-                # Scalping safeguard: enforce max daily trades when scalp mode
-                # is active and this intent looks scalp-eligible.
                 if config.scalp_mode and len(opt_sym) >= 15:
                     allowed_scalp, scalp_reason = self._allow_scalp(config)
                     if not allowed_scalp:
@@ -412,7 +523,6 @@ class BotScheduler:
                     )
                     continue
 
-                # Pre-trade risk gate allowed this trade. Check if auto-execution is enabled.
                 if self._autonomous_execution and is_configured():
                     intent_id = store.record_intent(
                         key=key,
@@ -443,7 +553,6 @@ class BotScheduler:
                         store.complete_intent(intent_id, status="failed", error=str(exc))
                         logger.error("Failed submitting order %s: %s", opt_sym, exc)
                 else:
-                    # Simulated or review-only mode
                     intent_id = store.record_intent(
                         key=key,
                         payload=order_payload,
@@ -517,17 +626,10 @@ class BotScheduler:
                 error=error_msg,
             )
             self._record_result(res)
+            self._log_zero_evaluation_diagnostic(res.to_dict())
             return res.to_dict()
         finally:
             self._execution_lock.release()
-
-    def _record_result(self, result: BotExecutionResult) -> None:
-        with self._lock:
-            self._run_count += 1
-            self._last_run_time = datetime.now(timezone.utc)
-            self._last_result = result
-            self._last_error = result.error
-            self._history.append(result.to_dict())
 
 
 _BOT_SCHEDULER: Optional[BotScheduler] = None
