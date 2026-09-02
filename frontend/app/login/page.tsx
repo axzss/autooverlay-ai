@@ -65,7 +65,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full rounded border border-[#1e293b] bg-[#020617] pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-[#22c55e]/50 placeholder:text-[#64748b]"
-                  placeholder="ADIT_IT_BOYS"
+                  placeholder="DitJiZak_IT_BOYS"
                   required
                   autoComplete="username"
                   disabled={submitting}
@@ -85,7 +85,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full rounded border border-[#1e293b] bg-[#020617] pl-10 pr-4 py-2.5 text-sm text-white outline-none focus:border-[#22c55e]/50 placeholder:text-[#64748b]"
-                  placeholder="ADIT_HATERS_99"
+                  placeholder="alpacaitboys"
                   required
                   autoComplete="current-password"
                   disabled={submitting}
@@ -110,8 +110,8 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-xs text-[#64748b]">
-            Demo credentials: <code className="font-mono text-[#94a3b8]">ADIT_IT_BOYS</code> /{' '}
-            <code className="font-mono text-[#94a3b8]">ADIT_HATERS_99</code>
+            Demo credentials: <code className="font-mono text-[#94a3b8]">DitJiZak_IT_BOYS</code> /{' '}
+            <code className="font-mono text-[#94a3b8]">alpacaitboys</code>
           </p>
         </div>
       </motion.div>
