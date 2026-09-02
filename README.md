@@ -64,6 +64,11 @@ cd frontend && npm install && npm run dev
 
 Open http://localhost:3000/dashboard
 
+## AI router
+
+This repo uses an OpenRouter-backed AI router for model access.
+
+Configure these in `backend/.env`:
 ## AI Trading Bot & Autonomous Scheduler
 
 AutoOverlay AI includes a background autonomous trading bot and scheduler (`backend/app/scheduler.py` via APScheduler):
@@ -89,25 +94,36 @@ This repo supports both local VS Code MCP tooling and native backend MCP tool de
 - Project-local entrypoint: `backend/.venv/Scripts/alpaca-mcp-server.exe`
 - Web app MCP tool manifest: `GET /api/bot/mcp/tools`
 
-### VS Code
-
-Configure VS Code’s MCP client (`C:\Users\<you>\AppData\Roaming\Code\User\mcp.json`) to use the venv entrypoint and load `backend/.env`:
-
-```json
-{
-  "servers": {
-    "alpaca": {
-      "command": "C:/path/to/autooverlay-ai/backend/.venv/Scripts/alpaca-mcp-server.exe",
-      "args": [
-        "--env-file",
-        "C:/path/to/autooverlay-ai/backend/.env"
-      ]
-    }
-  }
-}
+```bash
+AI_ROUTER_BASE_URL=https://openrouter.ai/api/v1
+AI_ROUTER_API_KEY=your_openrouter_api_key
+AI_ROUTER_MODEL=openai/gpt-4o-mini
 ```
 
-Restart VS Code, then try: “What is my Alpaca account balance and buying power?”
+Example:
+
+```bash
+curl https://openrouter.ai/api/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AI_ROUTER_API_KEY" \
+  -d "{\"model\":\"$AI_ROUTER_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one sentence.\"}]}"
+```
+
+Note: the AI router is an integration point for agent features; the web app still functions without it using local/mock paths.
+
+### Fallback LLM
+
+If the primary AI router returns a model-not-found error or is unavailable, the backend can fall back to another OpenAI-compatible provider.
+
+Configure in `backend/.env`:
+
+```bash
+LLM_FALLBACK_BASE_URL=https://openrouter.ai/api/v1
+LLM_FALLBACK_API_KEY=your_fallback_llm_api_key
+LLM_FALLBACK_MODEL=openai/gpt-4o-mini
+```
+
+Note: the fallback provider is used when the primary endpoint rejects the configured model or is unreachable.
 
 ```bash
 # Tests — run both suites (agent + backend)
