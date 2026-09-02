@@ -28,6 +28,13 @@ const DEFAULTS: StrategyParams = {
   dte_max: 45,
   max_concentration_pct: 25.0,
   min_cash_reserve_pct: 10.0,
+  scalp_mode: false,
+  scalp_min_dte: 0,
+  scalp_max_dte: 1,
+  scalp_delta_min: 0.2,
+  scalp_delta_max: 0.5,
+  scalp_target_pct: 0.25,
+  scalp_stop_mult: 1.2,
 }
 
 export default function StrategyConfigCard() {
@@ -125,6 +132,28 @@ export default function StrategyConfigCard() {
             display={`${params.max_concentration_pct}%`} onChange={set('max_concentration_pct')} />
           <Slider label="MIN CASH RESERVE" value={params.min_cash_reserve_pct} min={0} max={50} step={1}
             display={`${params.min_cash_reserve_pct}%`} onChange={set('min_cash_reserve_pct')} />
+
+          <div className="rounded border border-[#1e293b] bg-[#020617] p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-semibold text-white">Scalping Mode</h3>
+                <p className="text-[10px] text-[#64748b]">Opportunistic short-DTE overlay entries when enabled.</p>
+              </div>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={params.scalp_mode} onChange={(e) => setParams(p => ({...p, scalp_mode: e.target.checked}))} className="h-3.5 w-3.5 accent-[#22c55e]" />
+                <span className="text-[10px] text-[#94a3b8]">{params.scalp_mode ? 'ON' : 'OFF'}</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <NumberField label="SCALP DTE MAX" value={params.scalp_max_dte} min={0} max={7} step={1} onChange={set('scalp_max_dte')} />
+              <NumberField label="SCALP DELTA MIN" value={params.scalp_delta_min} min={0.05} max={1} step={0.05} onChange={set('scalp_delta_min')} />
+              <NumberField label="SCALP TARGET %" value={params.scalp_target_pct} min={0.05} max={1} step={0.05} onChange={set('scalp_target_pct')} />
+              <NumberField label="SCALP STOP MULT" value={params.scalp_stop_mult} min={1} max={5} step={0.25} onChange={set('scalp_stop_mult')} />
+              <NumberField label="SCALP MAX DAILY TRADES" value={params.scalp_max_daily_trades} min={1} max={50} step={1} onChange={set('scalp_max_daily_trades')} />
+              <NumberField label="SCALP MAX DAILY LOSS %" value={params.scalp_max_daily_loss_pct} min={0.1} max={10} step={0.1} onChange={set('scalp_max_daily_loss_pct')} />
+            </div>
+          </div>
 
           {error && (
             <div className="flex items-center gap-2 rounded border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs text-red-300">

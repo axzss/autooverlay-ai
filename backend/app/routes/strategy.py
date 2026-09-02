@@ -55,6 +55,15 @@ class StrategyConfigModel(BaseModel):
     dte_max: int
     max_concentration_pct: float = Field(..., allow_inf_nan=False)
     min_cash_reserve_pct: float = Field(..., allow_inf_nan=False)
+    scalp_mode: bool = False
+    scalp_min_dte: int = 0
+    scalp_max_dte: int = 1
+    scalp_delta_min: float = Field(..., allow_inf_nan=False)
+    scalp_delta_max: float = Field(..., allow_inf_nan=False)
+    scalp_target_pct: float = Field(..., allow_inf_nan=False)
+    scalp_stop_mult: float = Field(..., allow_inf_nan=False)
+    scalp_max_daily_trades: int = 6
+    scalp_max_daily_loss_pct: float = Field(..., allow_inf_nan=False)
 
 
 @router.get("/strategy/config")

@@ -30,7 +30,9 @@ from .alpaca_client import AlpacaClient, is_configured
 from .risk import TradeIntent, evaluate_trade, fetch_snapshot
 from .store import get_store, idempotency_key
 
-logger = logging.getLogger("autooverlay.scheduler")
+from .logging_config import get_bot_logger
+
+logger = get_bot_logger()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -114,6 +116,10 @@ class BotScheduler:
         self._last_error: Optional[str] = None
         self._job_id = "autooverlay_hourly_cycle"
 
+        self._scalp_daily_trades = 0
+        self._scalp_daily_loss = 0.0
+        self._scalp_last_date = datetime.now(timezone.utc).date()
+
     @property
     def is_running(self) -> bool:
         return self._is_running
@@ -192,6 +198,11 @@ class BotScheduler:
                 self._interval_hours,
                 self._autonomous_execution,
             )
+            # Fire one immediate cycle on startup so the bot is useful without
+            # requiring the user to click Run Now.
+            if self._auto_start:
+                import threading
+                threading.Thread(target=self.execute_cycle, kwargs={"manual": True}, daemon=True).start()
 
     def stop(self) -> None:
         with self._lock:
@@ -205,7 +216,6 @@ class BotScheduler:
     def _reschedule(self) -> None:
         if self._scheduler.get_job(self._job_id):
             self._scheduler.remove_job(self._job_id)
-        # Schedule interval in hours (or minutes if fractional)
         minutes = int(self._interval_hours * 60)
         self._scheduler.add_job(
             self.execute_cycle,
@@ -215,16 +225,43 @@ class BotScheduler:
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+            next_run_time=datetime.now(timezone.utc),
         )
+
+    def _reset_scalp_counters_if_new_day(self) -> None:
+        today = datetime.now(timezone.utc).date()
+        if today != self._scalp_last_date:
+            self._scalp_last_date = today
+            self._scalp_daily_trades = 0
+            self._scalp_daily_loss = 0.0
+
+    def _allow_scalp(self, config) -> tuple[bool, str | None]:
+        if not config.scalp_mode:
+            return False, None
+        self._reset_scalp_counters_if_new_day()
+        if self._scalp_daily_trades >= max(1, int(config.scalp_max_daily_trades)):
+            return False, "scalp daily trade limit reached"
+        daily_loss_limit = (config.scalp_max_daily_loss_pct / 100.0) * float(
+            self._last_result.summary.get("portfolio_equity") or 0.0
+        )
+        if daily_loss_limit > 0 and abs(self._scalp_daily_loss) >= daily_loss_limit:
+            return False, "scalp daily loss limit reached"
+        return True, None
+
+    def _record_scalp_result(self, pnl_change: float) -> None:
+        self._reset_scalp_counters_if_new_day()
+        self._scalp_daily_trades += 1
+        self._scalp_daily_loss += pnl_change
 
     def execute_cycle(self, manual: bool = False) -> Dict[str, Any]:
         """Execute one complete autonomous cycle through the full pipeline."""
         start_moment = datetime.now(timezone.utc)
         run_id = f"bot-{uuid4().hex[:12]}"
+        logger.info("Cycle queued run_id=%s manual=%s", run_id, manual)
 
         # Prevent overlapping cycle execution
         if not self._execution_lock.acquire(blocking=False):
-            logger.warning("Previous autonomous cycle is still active. Skipping run %s", run_id)
+            logger.warning("Cycle skipped: previous run still active run_id=%s", run_id)
             return {
                 "status": "skipped",
                 "reason": "cycle_already_in_progress",
@@ -234,7 +271,7 @@ class BotScheduler:
 
         try:
             if not manual and self._enforce_market_hours and not self.is_market_open():
-                logger.info("Market is closed. Skipping scheduled cycle %s", run_id)
+                logger.info("Cycle skipped: market closed run_id=%s", run_id)
                 return {
                     "status": "skipped",
                     "reason": "market_closed",
@@ -242,7 +279,7 @@ class BotScheduler:
                     "started_at": start_moment.isoformat(),
                 }
 
-            logger.info("Starting autonomous cycle %s (manual=%s)", run_id, manual)
+            logger.info("Cycle started run_id=%s manual=%s", run_id, manual)
 
             store = get_store()
             mode = "live" if is_configured() else "mock"
@@ -312,6 +349,31 @@ class BotScheduler:
                 if not opt_sym:
                     orders_blocked += 1
                     continue
+
+                # Scalping safeguard: enforce max daily trades when scalp mode
+                # is active and this intent looks scalp-eligible.
+                if config.scalp_mode and len(opt_sym) >= 15:
+                    allowed_scalp, scalp_reason = self._allow_scalp(config)
+                    if not allowed_scalp:
+                        orders_blocked += 1
+                        executed_orders.append({
+                            "symbol": opt_sym,
+                            "status": "blocked",
+                            "limit_price": intent_dict.get("limit_price"),
+                            "risk": {
+                                "allowed": False,
+                                "checks": [
+                                    {
+                                        "name": "scalp_safeguard",
+                                        "passed": False,
+                                        "severity": "BLOCK",
+                                        "detail": scalp_reason or "scalp safeguard blocked",
+                                        "values": {"daily_trades": self._scalp_daily_trades},
+                                    }
+                                ],
+                            },
+                        })
+                        continue
 
                 trade_intent = TradeIntent(
                     symbol=opt_sym,

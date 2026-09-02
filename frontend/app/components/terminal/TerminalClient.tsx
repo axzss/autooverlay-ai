@@ -28,6 +28,7 @@ import {
   RevealItem,
 } from '@/components/motion/primitives'
 import { ChevronRight } from 'lucide-react'
+import BotActivityPanel from './BotActivityPanel'
 
 function Skeleton() {
   return (
@@ -415,6 +416,10 @@ export default function TerminalClient() {
           </div>
         </div>
         {/* ── end Daily Cycle panel ─────────────────────────────────── */}
+
+        {/* ── Bot Scheduler Activity ──────────────────────────────────── */}
+        <BotActivityPanel />
+        {/* ── end Bot Scheduler Activity ──────────────────────────────── */}
 
         {/* ── Manual Trade panel ────────────────────────────────────── */}
         <ManualTradePanel />

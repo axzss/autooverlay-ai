@@ -1,5 +1,7 @@
 # BRIEF-BACKEND-V2 — Scale-Up Mandate for the Backend Agent Team
 
+**Status note 2026-09-02:** `/api/agent/run/{run_id}` and `/api/bot/*` autonomous-scheduler surfaces are implemented and reflected in `docs/BACKEND_FRONTEND_API.md` and `docs/API-CONTRACT.md`. `/api/bot/status` now documents automatic first-cycle startup behavior.
+
 **Issued by:** Orchestrator / CTO
 **Owner:** Backend (`AjiNurAji`) — `backend/**`, `specials/**`
 **Out of scope:** `frontend/**`, `agent/**`. New capability is exposed by adding routes, adapters and modules under `backend/`. If a route contract changes, announce it and update `specials/BACKEND_FRONTEND_API.md` in the same commit (JOBDESK rule).

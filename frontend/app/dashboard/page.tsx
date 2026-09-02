@@ -19,6 +19,7 @@ import {
   type PortfolioContext,
 } from '../../lib/api'
 import { usePortfolio } from '../../lib/api'
+import BotSchedulerCard from '@/components/dashboard/BotSchedulerCard'
 
 const usd = (v: string | number) =>
   Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -156,6 +157,7 @@ export default function DashboardPage() {
               </RevealItem>
               <RevealItem className="space-y-4">
                 <AgentStatusCard />
+                <BotSchedulerCard />
                 <AgentRunProvider>
                   <AgentControl />
                   <ThoughtProcess />

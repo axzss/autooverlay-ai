@@ -137,7 +137,16 @@ the response gains `portfolio_context`.
     "kill_max_drawdown_pct": 5.0,
     "kill_max_single_day_loss_pct": 2.0,
     "kill_consecutive_stop_losses": 3,
-    "overlay_only_drawdown": true
+    "overlay_only_drawdown": true,
+    "scalp_mode": false,
+    "scalp_min_dte": 0,
+    "scalp_max_dte": 1,
+    "scalp_delta_min": 0.2,
+    "scalp_delta_max": 0.5,
+    "scalp_target_pct": 0.25,
+    "scalp_stop_mult": 2.0,
+    "scalp_max_daily_trades": 6,
+    "scalp_max_daily_loss_pct": 1.5
   }
 }
 ```
@@ -145,6 +154,9 @@ the response gains `portfolio_context`.
 `PUT` rejects with `422`: NaN, ±Infinity, out-of-magnitude values, and wrong
 types. These are not cosmetic — security finding S1 was that a NaN threshold
 makes every comparison return `False`, silently disabling the kill-switch.
+
+Scalping mode adds daily safeguards: `scalp_max_daily_trades` and
+`scalp_max_daily_loss_pct` are enforced when `scalp_mode=true`.
 
 ---
 
@@ -353,19 +365,21 @@ Rejects NaN/Infinity with `422` (finding S3 — these previously caused HTTP 500
 
 ## `GET /api/bot/status`
 
-Returns the state of the background autonomous trading scheduler:
+Returns the state of the background autonomous trading scheduler. When
+`BOT_AUTONOMOUS_ENABLED=true`, the scheduler auto-starts on backend startup
+and fires one immediate cycle, so `run_count` increments without user action.
 
 ```json
 {
   "running": true,
   "interval_hours": 1.0,
-  "autonomous_execution": false,
+  "autonomous_execution": true,
   "enforce_market_hours": false,
-  "is_market_open": true,
+  "is_market_open": false,
   "alpaca_configured": true,
-  "run_count": 12,
-  "last_run_at": "2026-09-01T15:00:00.000Z",
-  "next_run_at": "2026-09-01T16:00:00.000Z",
+  "run_count": 1,
+  "last_run_at": "2026-09-02T15:19:17.000Z",
+  "next_run_at": "2026-09-02T16:00:00.000Z",
   "last_error": null,
   "last_result": {
     "run_id": "bot-a1b2c3d4e5f6",
@@ -374,7 +388,11 @@ Returns the state of the background autonomous trading scheduler:
     "directives_count": 4,
     "orders_evaluated": 2,
     "orders_submitted": 2,
-    "orders_blocked": 0
+    "orders_blocked": 0,
+    "summary": {
+      "status": "completed",
+      "executed_orders": []
+    }
   }
 }
 ```
@@ -422,7 +440,8 @@ Dynamically updates scheduler parameters:
 
 ## `POST /api/bot/cycle`
 
-Triggers an immediate on-demand autonomous cycle:
+Triggers an immediate on-demand autonomous cycle. The scheduler also fires
+one automatic cycle on startup when `BOT_AUTONOMOUS_ENABLED=true`.
 
 ```json
 // Response
@@ -436,7 +455,10 @@ Triggers an immediate on-demand autonomous cycle:
     "orders_evaluated": 2,
     "orders_submitted": 0,
     "orders_blocked": 0,
-    "summary": { "status": "completed", "executed_orders": [...] }
+    "summary": {
+      "status": "completed",
+      "executed_orders": []
+    }
   }
 }
 ```

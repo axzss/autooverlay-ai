@@ -571,6 +571,10 @@ export const api = {
     request<{ status: string; result: Record<string, unknown> }>('/api/bot/cycle', {
       method: 'POST',
     }),
+  getBotHistory: (limit = 50) =>
+    request<{ count: number; history: Array<Record<string, unknown>> }>(`/api/bot/history?limit=${encodeURIComponent(String(limit))}`),
+  getBotLogs: (limit = 100, level = 'INFO') =>
+    request<{ path: string; count: number; entries: Array<{ line: string }> }>(`/api/bot/logs?limit=${encodeURIComponent(String(limit))}&level=${encodeURIComponent(level)}`),
   getBotMcpTools: () =>
     request<{ mcp_version: string; server_name: string; tools: Array<Record<string, unknown>> }>(
       '/api/bot/mcp/tools',

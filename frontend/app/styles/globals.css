@@ -146,4 +146,26 @@
   .text-balance {
     text-wrap: balance;
   }
+
+  .log-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148,163,184,0.35) transparent;
+  }
+
+  .log-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .log-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .log-scroll::-webkit-scrollbar-thumb {
+    background: rgba(148,163,184,0.35);
+    border-radius: 9999px;
+  }
+
+  .log-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(148,163,184,0.55);
+  }
 }
