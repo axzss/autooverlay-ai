@@ -481,8 +481,8 @@ The backend enforces authentication on mutating routes and the agent endpoint:
 **Rate limiting:** `5` login attempts per minute per IP (in-process counter, 60s sliding window). Excess returns `429` with "Too many login attempts".
 
 **Dev credentials (hackathon scope, hardcoded in `backend/app/auth.py`):**
-- Username: `ADIT_IT_BOYS`
-- Password: `ADIT_HATERS_99`
+- Username: `DitJiZak_IT_BOYS`
+- Password: `alpacaitboys`
 
 Credentials must never be committed or placed in documentation.
 
