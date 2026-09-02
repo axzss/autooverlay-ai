@@ -37,6 +37,14 @@ prefix have been removed and intentionally return HTTP 404.
 | `/api/council/assess` | GET/POST | Run persona-based assessment | `backend/app/routes/council.py` |
 | `/api/council/cycle` | POST | Run autonomous daily cycle | `backend/app/routes/council.py` |
 | `/api/agent/run` | POST | Run recommendation-only agent cycle | `backend/app/routes/agent.py` |
+| `/api/agent/run/{run_id}` | GET | Fetch prior agent run by id | `backend/app/routes/agent.py` |
+| `/api/bot/status` | GET | Scheduler state and last execution metrics | `backend/app/routes/bot.py` |
+| `/api/bot/start` | POST | Start/resume the 1h scheduler | `backend/app/routes/bot.py` |
+| `/api/bot/stop` | POST | Stop the scheduler | `backend/app/routes/bot.py` |
+| `/api/bot/config` | POST | Update scheduler interval and auto-execution | `backend/app/routes/bot.py` |
+| `/api/bot/cycle` | POST | Trigger one immediate autonomous cycle | `backend/app/routes/bot.py` |
+| `/api/bot/history` | GET | Recent autonomous runs | `backend/app/routes/bot.py` |
+| `/api/bot/logs` | GET | Tail bot log lines | `backend/app/routes/bot.py` |
 | `/api/trade` | POST | Validate and submit/simulate order | `backend/app/routes/trade.py` |
 | `/api/trade/orders` | GET | Load broker or mock orders | `backend/app/routes/trade.py` |
 

@@ -56,7 +56,7 @@ cp .env.example .env        # ALPACA_KEY, ALPACA_SECRET, ALPACA_BASE_URL
 # 2. Backend (works without credentials — falls back to mock data)
 cd backend
 pip install -r requirements.txt
-PYTHONPATH=.. uvicorn app.main:app --reload
+.venv/Scripts/python.exe -m uvicorn app.main:app --reload
 
 # 3. Frontend
 cd frontend && npm install && npm run dev
@@ -126,8 +126,8 @@ LLM_FALLBACK_MODEL=openai/gpt-4o-mini
 Note: the fallback provider is used when the primary endpoint rejects the configured model or is unreachable.
 
 ```bash
-# Tests — run both suites (agent + backend)
-pytest agent/tests backend/tests -q     # 705 passed, 1 skipped
+# Tests — backend suite
+pytest backend/tests -q     # 513 passed, 1 skipped
 
 # Frontend gates
 cd frontend && npx tsc -p tsconfig.json --noEmit

@@ -24,9 +24,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 # ──────────────────────────────────────────────────────────────────────────
 # Credentials (hardcoded for hackathon — do not commit real secrets)
 # ──────────────────────────────────────────────────────────────────────────
-VALID_USERNAME = "DitJiZak_IT_BOYS"
+VALID_USERNAME = "ADIT_IT_BOYS"
 VALID_PASSWORD_HASH = hashlib.pbkdf2_hmac(
-    "sha256", b"alpacaitboys", b"autooverlay-salt-2026", 100_000
+    "sha256", b"ADIT_LOVERS_77", b"autooverlay-salt-2026", 100_000
 ).hex()
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -571,6 +571,10 @@ export const api = {
     request<{ status: string; result: Record<string, unknown> }>('/api/bot/cycle', {
       method: 'POST',
     }),
+  getBotHistory: (limit = 50) =>
+    request<{ count: number; history: Array<Record<string, unknown>> }>(`/api/bot/history?limit=${encodeURIComponent(String(limit))}`),
+  getBotLogs: (limit = 100, level = 'INFO') =>
+    request<{ path: string; count: number; entries: Array<{ line: string }> }>(`/api/bot/logs?limit=${encodeURIComponent(String(limit))}&level=${encodeURIComponent(level)}`),
   getBotMcpTools: () =>
     request<{ mcp_version: string; server_name: string; tools: Array<Record<string, unknown>> }>(
       '/api/bot/mcp/tools',
@@ -587,6 +591,19 @@ export interface BotStatusResponse {
   next_run_at: string | null
   last_error: string | null
   last_result?: Record<string, unknown> | null
+  circuit_breaker?: {
+    open: boolean
+    until: string | null
+    consecutive_failures: number
+    last_failure_category: string | null
+    last_failure_reason: string | null
+  }
+  last_alert?: {
+    created_at: string
+    category: string
+    reason: string
+    consecutive_failures: number
+  } | null
 }
 
 export interface PortfolioSnapshot {

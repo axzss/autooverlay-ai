@@ -48,6 +48,19 @@ class StrategyConfig:
     # Overlay drawdown mode
     overlay_only_drawdown: bool = True           # drawdown from overlay positions only when True
 
+    # Scalping mode
+    scalp_mode: bool = False
+    scalp_min_dte: int = 0
+    scalp_max_dte: int = 1
+    scalp_delta_min: float = 0.20
+    scalp_delta_max: float = 0.50
+    scalp_target_pct: float = 0.25
+    scalp_stop_mult: float = 1.2
+
+    # Scalping safeguards
+    scalp_max_daily_trades: int = 6
+    scalp_max_daily_loss_pct: float = 1.5
+
     # ------------------------------------------------------------------ #
     # Validation                                                          #
     # ------------------------------------------------------------------ #
@@ -82,11 +95,22 @@ class StrategyConfig:
         _check("max_concentration_pct", low=0.0, high=100.0)
         _check("max_sector_concentration_pct", low=0.0, high=100.0)
         _check("min_cash_reserve_pct", low=0.0, high=100.0)
+        _check("scalp_delta_min", low=0.0, high=1.0)
+        _check("scalp_delta_max", low=0.0, high=1.0)
+        _check("scalp_target_pct", low=0.0, high=1.0)
+        _check("scalp_stop_mult", low=0.0, high=1000.0)
+        _check("scalp_max_daily_trades", positive=True)
+        _check("scalp_max_daily_loss_pct", low=0.0, high=100.0)
 
         if self.delta_min >= self.delta_max:
             errors.append("delta_min must be < delta_max")
         if self.dte_min >= self.dte_max:
             errors.append("dte_min must be < dte_max")
+        if self.scalp_mode:
+            if self.scalp_min_dte > self.scalp_max_dte:
+                errors.append("scalp_min_dte must be <= scalp_max_dte")
+            if self.scalp_delta_min >= self.scalp_delta_max:
+                errors.append("scalp_delta_min must be < scalp_delta_max")
         return errors
 
     # ------------------------------------------------------------------ #

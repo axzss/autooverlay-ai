@@ -1,8 +1,8 @@
 # TESTING
 
 ```bash
-pytest agent/tests backend/tests -q
-# 705 passed, 1 skipped  (706 collected)
+pytest backend/tests -q
+# 513 passed, 1 skipped
 ```
 
 ## Python Unit & Integration Test Suites

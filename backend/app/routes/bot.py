@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -98,14 +99,41 @@ async def bot_cycle(
 
 @router.get("/bot/history")
 async def bot_history(
+    limit: int = 50,
     _user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Retrieve history of autonomous runs and decisions."""
     scheduler = get_bot_scheduler()
+    history = scheduler.get_history()
     return {
-        "count": len(scheduler.get_history()),
-        "history": scheduler.get_history(),
+        "count": len(history),
+        "history": history[-min(limit, len(history)) :],
     }
+
+
+@router.get("/bot/logs")
+async def bot_logs(
+    limit: int = 100,
+    level: str = "INFO",
+    _user: dict = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Return recent bot-related log lines with optional level filter."""
+    log_path = os.getenv("BOT_LOG_PATH") or os.getenv("LOG_PATH") or "logs/autooverlay.log"
+    entries: List[Dict[str, str]] = []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as fh:
+            tail = fh.readlines()[-limit * 4 :]
+        for line in tail:
+            line = line.strip()
+            if not line:
+                continue
+            upper = line.upper()
+            if level != "ALL" and f" {level.upper()} " not in upper and not upper.startswith(level.upper()):
+                continue
+            entries.append({"line": line})
+    except FileNotFoundError:
+        pass
+    return {"path": log_path, "count": len(entries), "entries": entries[-limit:]}
 
 
 @router.get("/bot/mcp/tools")

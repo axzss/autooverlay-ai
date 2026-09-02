@@ -1,5 +1,7 @@
 # BRIEF-FRONTEND-V2 — Scale-Up Mandate for the Frontend Team
 
+**Status note 2026-09-02:** `BotActivityPanel` log viewer now renders structured log fields with HTTP status/level colors, thin/transparent autoscrolling scroll, and the dashboard bot card exposes an explicit `Auto execute` toggle backed by `POST /api/bot/config`.
+
 **Issued by:** Orchestrator / CTO
 **Owner:** Frontend — `frontend/**` (`axzss`)
 **Out of scope:** `agent/**`, `backend/**`, `docs/**` except this file's status log.
