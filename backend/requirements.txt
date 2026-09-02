@@ -7,6 +7,10 @@ httpx>=0.26
 # None, and the council scores every symbol identically (53.6 / HOLD) with
 # bullets like "Margins unavailable" — a data outage that reads as analysis.
 requests>=2.31
+# backend/app/llm.py imports `openai` at module scope for the primary/fallback
+# chat router. It was never declared, so a clean venv install collected
+# backend/tests/test_llm.py straight into ModuleNotFoundError.
+openai>=1.40
 pytest>=8.0
 alpaca-mcp-server>=2.0
 apscheduler>=3.10
