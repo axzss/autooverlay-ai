@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 from datetime import date, datetime, timezone
 from uuid import uuid4
@@ -195,11 +196,32 @@ def _order_intents(directives: list[dict]) -> list[dict]:
             "type": "limit" if limit_price is not None else "market",
             "time_in_force": "day",
             "limit_price": limit_price,
-            "requires_approval": True,
+            "requires_approval": os.getenv("ALPACA_REQUIRE_APPROVAL", "true").lower() != "false",
             "submitted": False,
         }
+        if os.getenv("BOT_EXECUTE_ORDERS", "false").lower() == "true":
+            intent["submitted"] = _submit_order(intent)
+            intent["requires_approval"] = False
         intents.append(intent)
     return intents
+
+
+def _submit_order(intent: dict) -> bool:
+    try:
+        client = AlpacaClient()
+        order_params = {
+            "symbol": intent["option_symbol"],
+            "qty": intent["qty"],
+            "side": "sell",
+            "type": "limit" if intent.get("limit_price") else "market",
+            "time_in_force": "day",
+        }
+        if intent.get("limit_price"):
+            order_params["limit_price"] = intent["limit_price"]
+        client.submit_order(**order_params)
+        return True
+    except Exception:
+        return False
 
 
 class AgentRunRequest(BaseModel):
@@ -241,7 +263,7 @@ async def agent_run(
         "run_id": run_id,
         "status": "completed",
         "mode": "live" if is_configured() else "mock",
-        "orders_ready": False,
+        "orders_ready": os.getenv("BOT_EXECUTE_ORDERS", "false").lower() == "true",
         "order_intents": order_intents,
         "recommendations": recommendations,
         "risk_summary": risk_summary,
