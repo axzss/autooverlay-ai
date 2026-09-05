@@ -213,6 +213,34 @@ class AlpacaClient:
         self._bars_cache[cache_key] = (now, bars)
         return bars
 
+    def get_bars(self, symbol: str, timeframe: str = "1Hour", limit: int = 500) -> list[dict]:
+        """Return intraday equity bars for a given timeframe, with short TTL.
+
+        Supported timeframes include: 1Min, 5Min, 15Min, 1Hour, 1Day.
+        """
+        cache_key = f"intraday:{symbol.upper()}:{timeframe}:{limit}"
+        now = time.time()
+        cached = self._bars_cache.get(cache_key)
+        if cached and now - cached[0] < self._BARS_TTL_SECONDS:
+            return cached[1]
+
+        url = f"{get_data_url().rstrip('/')}/v2/stocks/bars"
+        params = {
+            "symbols": symbol.upper(),
+            "timeframe": timeframe,
+            "limit": int(limit),
+            "feed": "iex",
+        }
+        payload = self._data_request("GET", url, params)
+        bars_by_symbol = payload.get("bars")
+        if not isinstance(bars_by_symbol, dict):
+            raise AlpacaAPIError("Alpaca bars response must contain a mapping")
+        bars = bars_by_symbol.get(symbol.upper(), [])
+        if not isinstance(bars, list) or not all(isinstance(bar, dict) for bar in bars):
+            raise AlpacaAPIError("Alpaca bars response must contain a list")
+        self._bars_cache[cache_key] = (now, bars)
+        return bars
+
     # -- data api (option snapshots) --------------------------------------
 
     def _snapshots_cache_key(self, underlying: str) -> str:

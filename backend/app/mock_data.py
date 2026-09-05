@@ -37,6 +37,26 @@ def mock_screen_candidates() -> list[dict]:
     return load_mock().get("covered_call_opportunities", [])
 
 
+def mock_bars(symbol: str, limit: int = 500) -> list[dict]:
+    import random
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    base = 150.0
+    rows = []
+    for i in range(limit):
+        t = now - timedelta(minutes=limit - i)
+        rows.append({
+            "t": t.isoformat(),
+            "o": round(base + random.uniform(-1, 1), 2),
+            "h": round(base + random.uniform(0, 2), 2),
+            "l": round(base - random.uniform(0, 2), 2),
+            "c": round(base + random.uniform(-1, 1), 2),
+            "v": random.randint(1000, 5000),
+        })
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Council snapshots (bundled fallback for GET /council/assess without creds)
 # ---------------------------------------------------------------------------
