@@ -37,7 +37,7 @@ class StrategyConfig:
     min_cash_reserve_pct: float = 10.0   # min % cash remaining after collateral
     # Council §6 correlation rule: tech complex (AAPL/MSFT/NVDA/QQQ) combined
     # exposure cap as % of deployed overlay capital.
-    max_sector_concentration_pct: float = 40.0
+    max_sector_concentration_pct: float = 90.0
     sector_cap_group: tuple = ("AAPL", "MSFT", "NVDA", "QQQ")
 
     # Kill-switch thresholds (agent halt conditions)
