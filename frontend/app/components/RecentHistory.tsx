@@ -1,5 +1,8 @@
 'use client'
 
+import { useState } from 'react'
+import AssetChart from '@/components/charts/AssetChart'
+
 export interface HistoryRow {
   date: string
   action: string
@@ -14,6 +17,8 @@ interface RecentHistoryProps {
 }
 
 export default function RecentHistory({ rows }: RecentHistoryProps) {
+  const [openSymbol, setOpenSymbol] = useState<string | null>(null)
+
   return (
     <div className="card overflow-hidden">
       <div className="px-4 py-3 border-b border-[#1e293b]">
@@ -32,19 +37,38 @@ export default function RecentHistory({ rows }: RecentHistoryProps) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.date + row.ticker} className="border-b border-[#1e293b] last:border-0 hover:bg-[#1e293b]/40 transition-colors">
-                <td className="px-4 py-3 text-[#f8fafc]">{row.date}</td>
-                <td className="px-4 py-3 text-[#f8fafc]">{row.action}</td>
-                <td className="px-4 py-3 text-[#f8fafc]">{row.ticker}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center rounded border border-[#334155] px-2 py-0.5 text-xs text-[#cbd5e1]">
-                    {row.status}
-                  </span>
-                </td>
-                <td className={`px-4 py-3 text-right font-mono ${row.pnlColor}`}>
-                  {row.pnl.startsWith('+') ? '+' : ''}{row.pnl}
-                </td>
-              </tr>
+              <>
+                <tr
+                  key={row.date + row.ticker}
+                  className="border-b border-[#1e293b] last:border-0 hover:bg-[#1e293b]/40 transition-colors"
+                >
+                  <td className="px-4 py-3 text-[#f8fafc]">{row.date}</td>
+                  <td className="px-4 py-3 text-[#f8fafc]">{row.action}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => setOpenSymbol(openSymbol === row.ticker ? null : row.ticker)}
+                      className="text-[#22c55e] hover:underline"
+                    >
+                      {row.ticker}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center rounded border border-[#334155] px-2 py-0.5 text-xs text-[#cbd5e1]">
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className={`px-4 py-3 text-right font-mono ${row.pnlColor}`}>
+                    {row.pnl.startsWith('+') ? '+' : ''}{row.pnl}
+                  </td>
+                </tr>
+                {openSymbol === row.ticker && (
+                  <tr key={`chart-${row.date + row.ticker}`}>
+                    <td colSpan={5} className="px-4 py-3">
+                      <AssetChart symbol={row.ticker} timeframe="1Hour" />
+                    </td>
+                  </tr>
+                )}
+              </>
             ))}
           </tbody>
         </table>
