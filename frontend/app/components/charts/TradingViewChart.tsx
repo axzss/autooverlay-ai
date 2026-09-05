@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-export default function LiveTradingChartPage() {
+export default function TradingViewChart({ symbol = 'NVDA' }: { symbol?: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const [symbol, setSymbol] = useState('NVDA')
+  const [current, setCurrent] = useState(symbol)
+
+  useEffect(() => {
+    setCurrent(symbol)
+  }, [symbol])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -14,11 +18,11 @@ export default function LiveTradingChartPage() {
     script.async = true
     script.onload = () => {
       // @ts-ignore
-      if (typeof TradingView !== 'undefined') {
+      if (typeof TradingView !== 'undefined' && containerRef.current) {
         // @ts-ignore
         new TradingView.widget({
           autosize: true,
-          symbol: `NASDAQ:${symbol}`,
+          symbol: `NASDAQ:${current}`,
           interval: '15',
           container: containerRef.current,
           library_path: 'https://s3.tradingview.com/tv.js/',
@@ -29,10 +33,7 @@ export default function LiveTradingChartPage() {
           hide_side_toolbar: false,
           allow_symbol_change: true,
           save_image: false,
-          studies: [
-            'MASimple@tv-basicstudies',
-            'MAExp@tv-basicstudies',
-          ],
+          studies: ['MASimple@tv-basicstudies', 'MAExp@tv-basicstudies'],
           overrides: {
             'mainSeriesProperties.candleStyle.upColor': '#22c55e',
             'mainSeriesProperties.candleStyle.downColor': '#ef4444',
@@ -52,7 +53,7 @@ export default function LiveTradingChartPage() {
         containerRef.current.innerHTML = ''
       }
     }
-  }, [symbol])
+  }, [current])
 
   return (
     <div className="rounded-xl border border-[#1e293b] bg-[#020617]">
@@ -60,8 +61,8 @@ export default function LiveTradingChartPage() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-[#94a3b8]">Symbol:</span>
           <input
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            value={current}
+            onChange={(e) => setCurrent(e.target.value.toUpperCase())}
             className="w-28 rounded border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-white"
             placeholder="NVDA"
           />

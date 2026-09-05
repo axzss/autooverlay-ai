@@ -12,6 +12,7 @@ import ThoughtProcess from '@/components/ThoughtProcess'
 import AgentStatusCard from '@/components/dashboard/AgentStatusCard'
 import EquitySparkline from '@/components/charts/EquitySparkline'
 import AllocationDonut from '@/components/charts/AllocationDonut'
+import TradingViewChart from '@/components/charts/TradingViewChart'
 import { RevealGroup, RevealItem } from '@/components/motion/primitives'
 import {
   api,
@@ -150,6 +151,10 @@ export default function DashboardPage() {
                 </div>
               </RevealItem>
             </RevealGroup>
+
+            <RevealItem className="card">
+              <TradingViewChart symbol="NVDA" />
+            </RevealItem>
             <RevealGroup className="grid grid-cols-1 lg:grid-cols-3 gap-4" delayChildren={0.12}>
               <RevealItem className="lg:col-span-2 space-y-4">
                 <UnderlyingAssets positions={positions} />
