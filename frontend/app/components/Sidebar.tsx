@@ -8,6 +8,7 @@ import {
   Terminal,
   Settings,
   Scale,
+  CandlestickChart,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LogoLockup } from '@/components/brand/Logo'
@@ -18,6 +19,7 @@ const publicNav = [
   { name: 'Dashboard', icon: LayoutGrid, href: '/dashboard' },
   { name: 'Assets', icon: Wallet, href: '/assets' },
   { name: 'Council', icon: Scale, href: '/council' },
+  { name: 'Live Chart', icon: CandlestickChart, href: '/live-trading-chart' },
 ]
 
 const protectedNav = [
