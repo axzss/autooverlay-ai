@@ -153,7 +153,7 @@ export default function DashboardPage() {
             </RevealGroup>
 
             <RevealItem className="card">
-              <TradingViewChart symbol="NVDA" />
+              <TradingViewChart positions={positions} defaultSymbol="NVDA" />
             </RevealItem>
             <RevealGroup className="grid grid-cols-1 lg:grid-cols-3 gap-4" delayChildren={0.12}>
               <RevealItem className="lg:col-span-2 space-y-4">
