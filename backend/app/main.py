@@ -35,6 +35,9 @@ from .routes.strategy import router as strategy_router
 from .routes.trade import router as trade_router
 from .routes.bot import router as bot_router
 from .routes.alpaca_data import router as alpaca_data_router
+from .routes.indicators import router as indicators_router
+from .routes.market_regime import router as market_regime_router
+from .routes.ai_signals import router as ai_signals_router
 from .scheduler import get_bot_scheduler
 
 app = FastAPI(title="AutoOverlay AI Backend", version="0.1.0")
@@ -76,6 +79,9 @@ app.include_router(council_router, prefix="/api", tags=["council"])
 app.include_router(agent_router, prefix="/api", tags=["agent"])
 app.include_router(bot_router, prefix="/api", tags=["bot"])
 app.include_router(alpaca_data_router, prefix="/api", tags=["alpaca"])
+app.include_router(indicators_router, prefix="/api", tags=["indicators"])
+app.include_router(market_regime_router, prefix="/api", tags=["market"])
+app.include_router(ai_signals_router, prefix="/api", tags=["ai"])
 
 
 def _sanitize(obj):
